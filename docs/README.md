@@ -2,6 +2,8 @@
 
 Zero-OS 0-Disk is about the components that allow to create and use block devices (vdisks) from within virtual machines hosted on a Zero-OS node.
 
+![0-Disk overview](/docs/assets/zerodisk_overview.png)
+
 A vdisk can be deduped, have various block sizes and depending on the underlying storage cluster, have different speed characteristics.
 
 Following vdisks types are supported:
@@ -21,8 +23,10 @@ Following vdisks types are supported:
 Zero-OS block storage is implemented in the [zero-os/0-Disk](https://github.com/zero-os/0-Disk) repository on GitHub.
 
 Components:
-* [NBD Server](nbd/nbd.md): A network block device server to expose the vdisks to virtual machines
-* [TLOG Server](tlog/tlog.md): A transaction log server to record block changes
-* [Command Line Tool](commandlinetool/commandlinetool.md): A command line tool suite to manage vdisks
+* [NBD Server](nbd/nbd.md): A network block device (NBD) server to expose the vdisks to virtual machines
+* [TLOG Server/Client](tlog/tlog.md): A transaction log server and client to record block changes
+* [zeroctl](zeroctl/zeroctl.md): A command line tool to manage vdisks
 
 See the [Table of Contents](SUMMARY.md) for all documentation.
+
+See the [Glossary](/docs/glossary.md) as a reference for terminology specific to this project.

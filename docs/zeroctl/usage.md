@@ -26,33 +26,6 @@ Use "zeroctl [command] --help" for more information about a command.
 
 ## Examples
 
-Config file used in examples where the config file is used:
-
-```yaml
-storageClusters:
-  clusterA:
-    dataStorage:
-      - address: localhost:6379
-    metaDataStorage:
-      address: localhost:6379
-  clusterB:
-    dataStorage:
-      - address: localhost:6380
-    metaDataStorage:
-      address: localhost:6380
-vdisks:
-  vdiskA:
-    blockSize: 4096
-    size: 1
-    storageCluster: clusterA
-    type: boot
-  vdiskC:
-    blockSize: 4096
-    size: 1
-    storageCluster: clusterB
-    type: boot
-```
-
 Note that the examples below don't show all available flags.
 Please use `zeroctl [command] --help` to see the flags of a specific command,
 `zeroctl copy vdisk --help` will for example show all information available for the
@@ -116,7 +89,7 @@ The following would succeed for the found vdisk, but log an error for the other 
 $ zeroctl delete vdisks foo vdiskA # vdiskA will be deleted correctly, even though foo doesn't exist
 ```
 
-### Restore a (deduped or nondeduped) vdisk
+### Restore a vdisk
 
 Restore a whole vdisk `a`:
 
@@ -136,7 +109,6 @@ Restore vdisk `a` from the start until timestamp `x`
 ```
 $ zeroctl restore vdisk a --end-timestamp=x
 ```
-
 
 **Note**: this requires that you have a `config.yml` file in the current working directory.
 

@@ -1,5 +1,7 @@
 # Tlog Server Configuration
 
+TODO: UPDATE
+
 The Tlog server is configured using a YAML configuration file:
 
 ```yaml
