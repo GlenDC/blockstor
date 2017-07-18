@@ -4,7 +4,7 @@
 
 ### AGGMQ
 
-The [Aggregation](#aggregation) Message Queue (AGGMQ) is used to queue [aggregations](#aggregation) in the [TLog](#tlog) server as they are waiting to be processed. See the [tlog docs][tlog] for more info.
+The [Aggregation](#aggregation) Message Queue (AGGMQ) is used to queue [aggregations](#aggregation) in the [TLog](#tlog) server as they are waiting to be processed. See the [TLog docs][tlog] for more info.
 
 ### aggregation
 
@@ -16,7 +16,7 @@ ARDB (or "A Redis Database") is the collective term used for the underlying stor
 
 ### backend
 
-[NBD](#nbd) backend is the core implementation of all [volume drivers](#volume-driver) used via the [nbdserver](#nbd). It is used as glue between the [gonbdserver](/nbd/gonbdserver) and the actual underlying [nbd storage (2)](#storage). See the [NBD docs][nbd] for more info.
+[NBD](#nbd) backend is the core implementation of all [volume drivers](#volume-driver) used via the [NBD server](#nbd). It is used as glue between the [gonbdserver](/nbd/gonbdserver) and the actual underlying [NBD storage (2)](#storage). See the [NBD docs][nbd] for more info.
 
 ### backup
 
@@ -92,7 +92,7 @@ Logic Block Addressing (LBA) is the scheme used for specifying the location of [
 
 ### NBD
 
-Network Block Device is the name for the Linux-originated protocol as described in [this specification document][nbd]. It allows us to mount [vdisks](#vdisk) as if they were a physical block device. When a client connects to the nbdserver it is being handled by the [gonbdserver](/gonbdserver), which on its turn delegates the actual storage work onto the [nbd backend](#backend).
+Network Block Device is the name for the Linux-originated protocol as described in [this specification document][nbdproto]. It allows us to mount [vdisks](#vdisk) as if they were a physical block device. When a client connects to the nbdserver it is being handled by the [gonbdserver](/gonbdserver), which on its turn delegates the actual storage work onto the [nbd backend](#backend).
 
 ### nondeduped
 
@@ -104,11 +104,11 @@ Network Block Device is the name for the Linux-originated protocol as described 
 
 ### player
 
-The [TLog](#tlog) player can read the [logged (3) transactions](#log) and use it to [restore](#restore) a [vdisk](#vdisk) by writing it directly to the [nbd backend](#backend). This player is used by the [zeroctl](#zeroctl) restore command for example. See the [TLog Player docs][tlogplayer] for more info.
+The [TLog](#tlog) player can read the [logged (3) transactions](#log) and use it to [restore](#restore) a [vdisk](#vdisk) by writing it directly to the [NBD backend](#backend). This player is used by the [zeroctl](#zeroctl) restore command for example. See the [TLog Player docs][tlogplayer] for more info.
 
 ### pool
 
-In order to limit the amount of connections to a single [storage (1)](#storage) server, a pool is used. Meaning that for example only 10 connections at the same time can be established. Note that that this pool is only limiting at a local level. Each mounted [vdisk](#vdisk) for example has its own pool _per_ [storage (1)](#storage) server, therefore if that vdisk uses 5 [storage (1)](#storage) servers, it will also use 5 pools. Another mounted [vdisk](#vdisk) will never share pools of another [vdisk](#vdisk), even if they use the same servers. The [nbd](#nbd) and [TLog](#tlog) modules have each their own pool implementation.
+In order to limit the amount of connections to a single [storage (1)](#storage) server, a pool is used. Meaning that for example only 10 connections at the same time can be established. Note that that this pool is only limiting at a local level. Each mounted [vdisk](#vdisk) for example has its own pool _per_ [storage (1)](#storage) server, therefore if that vdisk uses 5 [storage (1)](#storage) servers, it will also use 5 pools. Another mounted [vdisk](#vdisk) will never share pools of another [vdisk](#vdisk), even if they use the same servers. The [NBD](#nbd) and [TLog](#tlog) modules have each their own pool implementation.
 
 ### redundant
 
@@ -140,9 +140,9 @@ A slave [storage (1)](#storage) cluster is a mirror of a vdisk's primary [storag
 
 ### storage
 
-1. An [ARDB cluster](#ardb) is used as the [persistent](#persistent) storage for all [vdisks](#vdisk) mounted using the [nbd server](#nbd). Only the primary storage cluster (usually shortened to 'storage cluster') is required. The [TLog](#tlog) cluster is required in case you want to make use of it for those [vdisks](#vdisk) that support it. In such case you can also optionally make use of the [Slave](#slave) cluster. Optionally you can also make use of a [Template](#template) cluster for those [vdisks](vdisk) that support it.
+1. An [ARDB cluster](#ardb) is used as the [persistent](#persistent) storage for all [vdisks](#vdisk) mounted using the [NBD server](#nbd). Only the primary storage cluster (usually shortened to 'storage cluster') is required. The [TLog](#tlog) cluster is required in case you want to make use of it for those [vdisks](#vdisk) that support it. In such case you can also optionally make use of the [Slave](#slave) cluster. Optionally you can also make use of a [Template](#template) cluster for those [vdisks](vdisk) that support it.
 
-2. [nbd backend](#backend) storage types define how a [persistent](#persistent) [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) is stored (1) in an [ARDB cluster](#ardb).
+2. [NBD backend](#backend) storage types define how a [persistent](#persistent) [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) is stored (1) in an [ARDB cluster](#ardb).
 
 3. [0-stor][0-stor] is used to store [TLog](#tlog) [data (2)](#data) and [metadata (4)](#metadata), using the [0-stor-lib][0-stor-lib].
 
@@ -160,7 +160,7 @@ The Transaction [Log (3)](#log) (TLog) module provides a [server][tlogserver], [
 
 ### vdisk
 
-A Virtual Disk (vdisk) is the 0-Disk component which emulates an actual [block](#block) [storage (2)](#storage) device. The actual [data (1)](#data) and [metadata (1,2,3)](#metadata) of the vdisk is stored in an [ardb cluster](#ardb). Using the [nbd server](#nbd) it can be mounted and used as if it was a physical disk.
+A Virtual Disk (vdisk) is the 0-Disk component which emulates an actual [block](#block) [storage (2)](#storage) device. The actual [data (1)](#data) and [metadata (1,2,3)](#metadata) of the vdisk is stored in an [ardb cluster](#ardb). Using the [NBD server](#nbd) it can be mounted and used as if it was a physical disk.
 
 ### volume driver
 
@@ -175,7 +175,7 @@ The 0-Disk command line tool, used to manage [vdisks](#vdisk). See the [zeroctl 
 [ledis]: http://ledisdb.com
 [capnp]: https://capnproto.org
 [blake2b]: github.com/minio/blake2b-simd
-[nbd]: https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
+[nbdproto]: https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
 
 [0-Orchestrator]: https://github.com/zero-os/0-Orchestrator
 [0-stor-lib]: https://github.com/zero-os/0-stor-lib
