@@ -1,0 +1,5 @@
+# zeroctl list
+
+## vdisks
+
+...

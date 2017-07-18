@@ -1,5 +1,12 @@
 # Semi Deduped Storage
 
-TODO
+summary
 
-TODO: make sure to have an explicit about all details of how the data+metadata is actually stored in the ardb
+Currently not used for any support [vdisk][vdisk] types.
+
+## Storage
+
+how it really works using other storages ...
+
+
+[vdisk]: /docs/glossary.md#vdisk

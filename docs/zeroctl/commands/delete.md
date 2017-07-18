@@ -1,0 +1,5 @@
+# zeroctl delete
+
+## vdisks
+
+...

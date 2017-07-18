@@ -10,3 +10,7 @@ A NBD Server actually implements the NBD protocol. For each virtual machine, one
 
 Next:
 - [Building your NBD Server](building.md)
+
+## Possible Failure Scenarios
+
+todo...

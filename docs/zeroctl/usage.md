@@ -1,5 +1,7 @@
 # Using the 0-Disk Command Line Tool
 
+TODO: DELETE THIS FILE
+
 ```
 $ zeroctl -h
 zeroctl controls the zero-os resources

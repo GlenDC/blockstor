@@ -1,5 +1,9 @@
 # Deduped Storage
 
-TODO
+summary
 
-TODO: make sure to have an explicit about all details of how the data+metadata is actually stored in the ardb
+used for which vdisks...
+
+## Storage
+
+how the data+metadata is actually stored in the ardb

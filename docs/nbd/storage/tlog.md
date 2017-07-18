@@ -1,3 +1,9 @@
-# TLog Storage
+# Semi Deduped Storage
 
-TODO
+summary
+
+used for which vdisk types and when...
+
+## Storage
+
+how it really works using other storages ...

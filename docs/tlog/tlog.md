@@ -15,6 +15,14 @@ TODO: talk about applications such as rollback.
 * [TLog Player](player.md)
   - TODO
 
+## Possible Failure Scenarios
+
+todo...
+
+## How is data stored
+
+todo...
+
 ---
 
 old...

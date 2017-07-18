@@ -142,7 +142,7 @@ A slave [storage (1)](#storage) cluster is a mirror of a vdisk's primary [storag
 
 1. An [ARDB cluster](#ardb) is used as the [persistent](#persistent) storage for all [vdisks](#vdisk) mounted using the [NBD server](#nbd). Only the primary storage cluster (usually shortened to 'storage cluster') is required. The [TLog](#tlog) cluster is required in case you want to make use of it for those [vdisks](#vdisk) that support it. In such case you can also optionally make use of the [Slave](#slave) cluster. Optionally you can also make use of a [Template](#template) cluster for those [vdisks](vdisk) that support it.
 
-2. [NBD backend](#backend) storage types define how a [persistent](#persistent) [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) is stored (1) in an [ARDB cluster](#ardb).
+2. [NBD backend](#backend) storage types define how a [persistent](#persistent) [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) is stored in an [ARDB cluster](#ardb).
 
 3. [0-stor][0-stor] is used to store [TLog](#tlog) [data (2)](#data) and [metadata (4)](#metadata), using the [0-stor-lib][0-stor-lib].
 
@@ -155,6 +155,10 @@ A [db](#db) [vdisk](#vdisk) can also make use of a template [storage (1)](#stora
 ### TLog
 
 The Transaction [Log (3)](#log) (TLog) module provides a [server][tlogserver], [client][tlogclient] and player. Its purpose is to make [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) [redundant](#redundant) by storing all write transactions applied by the user in a seperate [storage (3)](#storage) in a secure and efficient manner.
+
+### tmp
+
+tmp (short for Temporary) is one of the available [vdisk](#vdisk) types. It uses the [nondeduped storage](#nondeduped) as its underlying [storage (2)](#storage) type. Its [data (1)](#data) is persistent as long as it mounted via the [NBD server](#nbd). The [vdisk](#vdisk) is deleted as soon as it is unmounted. See the [NBD docs][nbd] for a more info..
 
 ## [ U - Z ]
 
