@@ -31,7 +31,7 @@ type BackendFactoryConfig struct {
 	PoolFactory       RedisPoolFactory
 	ConfigHotReloader config.HotReloader // NBDServer Config Hotreloader
 	TLogRPCAddress    string             // address of tlog server
-	LBACacheLimit     int64              // min-capped to LBA.BytesPerShard
+	LBACacheLimit     int64              // min-capped to LBA.BytesPerSector
 	ConfigPath        string             // path to the NBDServer's YAML Config
 }
 
@@ -123,10 +123,10 @@ func (f *BackendFactory) NewBackend(ctx context.Context, ec *nbd.ExportConfig) (
 	case config.StorageDeduped, config.StorageSemiDeduped:
 		// define the LBA cache limit
 		cacheLimit := f.lbaCacheLimit
-		if cacheLimit < lba.BytesPerShard {
+		if cacheLimit < lba.BytesPerSector {
 			log.Infof(
 				"NewBackend: LBACacheLimit (%d) will be defaulted to %d (min-capped)",
-				cacheLimit, lba.BytesPerShard)
+				cacheLimit, lba.BytesPerSector)
 			cacheLimit = DefaultLBACacheLimit
 		}
 
