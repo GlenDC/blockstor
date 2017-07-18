@@ -12,7 +12,7 @@ An aggregation consists out of a group of [TLog](#tlog) sequences and some metad
 
 ### ARDB
 
-ARDB (or "A Redis Database") is the collective term used for the underlying storage where the [persistent](#persistent) [vdisks](#vdisk)' [data](#data) and [metadata](#metadata) are stored. In production [redis][redis] is used, while [LedisDB][ledis] is used for test- and dev purposes. See the [NBD storage docs][storage] for more info. Usually a group of servers (called a cluster) are used together, in order to spread the data and processing.
+ARDB (or "A Redis Database") is the collective term used for the underlying storage where the [persistent](#persistent) [vdisks](#vdisk)' [data (1)](#data) and [metadata (1,2,3)](#metadata) are stored. In production [redis][redis] is used, while [LedisDB][ledis] is used for test- and dev purposes. See the [NBD storage docs][storage] for more info. Usually a group of servers (called a cluster) are used together, in order to spread the data and processing.
 
 ### backend
 
@@ -24,15 +24,17 @@ Using the [zeroctl](#zeroctl) tool, one can make a backup of a [vdisk](#vdisk) u
 
 ### block
 
-All [vdisks](#vdisk)' [data](#data) is stored as blocks, with a dynamic size usually measured in bytes. 4096 KiB is the standard size for [boot](#boot) [vdisks](#vdisk). See the [NBD storage docs][storage] for more info.
+All [vdisks](#vdisk)' [data (1)](#data) is stored as blocks, with a dynamic size usually measured in bytes. 4096 KiB is the standard size for [boot](#boot) [vdisks](#vdisk). See the [NBD storage docs][storage] for more info.
 
 ### boot
 
-Boot [vdisk](#vdisk) is one of the available [vdisk](#vdisk) types. It uses the [deduped storage](#deduped) as its underlying [storage (2)](#storage) type. [Data](#data) and [metadata](#metadata) are redundant by making use of the [TLog](#tlog) client. The boot type is meant for (OS) images, hence the name. See the [NBD docs][nbd] for more info.
+Boot is one of the available [vdisk](#vdisk) types. It uses the [deduped storage](#deduped) as its underlying [storage (2)](#storage) type. [Data (1)](#data) and [metadata (1,3)](#metadata) are redundant by making use of the [TLog](#tlog) client. The boot type is meant for (OS) images, hence the name. See the [NBD docs][nbd] for more info.
 
 ### cache
 
-Cache [vdisk](#vdisk) is one of the available [vdisk](#vdisk) types. It uses the [nondeduped storage](#nondeduped) as its underlying [storage (2)](#storage) type. As its name suggests it is meant for caching. See the [NBD docs][nbd] for a more elaborabe overview.
+1. Cache is one of the available [vdisk](#vdisk) types. It uses the [nondeduped storage](#nondeduped) as its underlying [storage (2)](#storage) type. As its name suggests it is meant for caching. See the [NBD docs][nbd] for a more elaborabe overview.
+
+2. A Least Recently Used (LRU) cache is used to cache loaded [LBA sectors](#sector). The cache only keeps a low amount of [sectors](#sector) in memory, and evicts the [sector](#sector) last used in case the cache is full.
 
 ### data
 
@@ -42,11 +44,11 @@ Cache [vdisk](#vdisk) is one of the available [vdisk](#vdisk) types. It uses the
 
 ### db
 
-Database (db) [vdisk](#vdisk) is one of the available [vdisk](#vdisk) types. It uses the [nondeduped storage](#nondeduped) as its underlying [storage (2)](#storage) type. [Data](#data) and [metadata](#metadata) are redundant by making use of the [TLog](#tlog) client. The boot type is meant for (OS) images, hence the name. See the [NBD docs][nbd] for more info.
+Database (db) is one of the available [vdisk](#vdisk) types. It uses the [nondeduped storage](#nondeduped) as its underlying [storage (2)](#storage) type. [Data (1)](#data) and [metadata (3)](#metadata) are redundant by making use of the [TLog](#tlog) client. The boot type is meant for (OS) images, hence the name. See the [NBD docs][nbd] for more info.
 
 ### deduped
 
-[Blocks](#block) stored in the deduped [storage (2)](#storage) are only stored once, and are identified by their block [hash](#hash), which is referenced via its [metadata](#metadata). See the [deduped storage docs][dedup] for more info.
+[Blocks](#block) stored in the deduped [storage (2)](#storage) are only stored once, and are identified by their block [hash](#hash), which is referenced via its [metadata (1)](#metadata). See the [deduped storage docs][dedup] for more info.
 
 ### hash
 
@@ -62,7 +64,7 @@ Any 0-Disk config supports hot reloading as an optional feature, for where it is
 
 2. [Block](#block) index is used to identify a [vdisk](#vdisk)'s [block](#block). The index can be calculated using the formula `i = position % blockSize`, where both the position and blockSize are expressed in bytes. 
 
-3. [LBA](#lba) shard (todo: better name for this) index is used to identify an [LBA](#lba) shard. The index can be calculated using the formula `i = position % blockSize % 128`, where both the position and blockSIze are expressed in bytes.
+3. [LBA](#lba) [sector](#sector) index is used to identify an [LBA](#lba) index. The index can be calculated using the formula `i = blockIndex % 128`.
 
 ## [ K - T ]
 
@@ -98,7 +100,7 @@ Network Block Device is the name for the Linux-originated protocol as described 
 
 ### persistent
 
-[VDisk](#vdisk) [data](#data) and [metadata](#metadata) are made persistent by storing it in one or multiple [ardb clusters](#ardb). This is the case for all [vdisk](#vdisk) types.
+[VDisk](#vdisk) [data (1)](#data) and [metadata (1,2,3)](#metadata) are made persistent by storing it in one or multiple [ardb clusters](#ardb). This is the case for all [vdisk](#vdisk) types.
 
 ### player
 
@@ -110,7 +112,7 @@ In order to limit the amount of connections to a single [storage (1)](#storage) 
 
 ### redundant
 
-Both the [boot](#boot)- and [db](#db) [vdisk](#vdisk) types have support to make the [data](#data) and [metadata](#metadata) redundant:
+Both the [boot](#boot)- and [db](#db) [vdisk](#vdisk) types have support to make the [data (1)](#data) and [metadata (1,2,3)](#metadata) redundant:
 
 + [TLog](#tlog) rpc addresses can be given in the [vdisk](#vdisk)'s [TLog config][tlogconfig];
 + When [TLog](tlog) support is enabled, a [slave](#slave) [storage (1)](#storage) cluster also be specified in the [vdisk](#vdisk)'s [TLog config][tlogconfig];
@@ -128,9 +130,9 @@ Both the [boot](#boot)- and [db](#db) [vdisk](#vdisk) types have support to make
 
 Semi Deduped storage is a hybrid storage, using read-only [deduped storage](#deduped) to store the [template](#template) content, and [nondeduped storage](#nondeduped) to store any content (modifications) written by the user. See the [semideduped storage docs][semidedup] for more info.
 
-### shard
+### sector
 
-todo: come up with a better name for an "LBA Shard"
+An [LBA](#lba) sector contains 128 hashes, and is kept in an LRU [cache (2)](#cache) when it is loaded because one of those hashes were required, so the sector is available for more reads if needed. See the [deduped docs][dedup] for more info.
 
 ### slave
 
@@ -140,29 +142,29 @@ A slave [storage (1)](#storage) cluster is a mirror of a vdisk's primary [storag
 
 1. An [ARDB cluster](#ardb) is used as the [persistent](#persistent) storage for all [vdisks](#vdisk) mounted using the [nbd server](#nbd). Only the primary storage cluster (usually shortened to 'storage cluster') is required. The [TLog](#tlog) cluster is required in case you want to make use of it for those [vdisks](#vdisk) that support it. In such case you can also optionally make use of the [Slave](#slave) cluster. Optionally you can also make use of a [Template](#template) cluster for those [vdisks](vdisk) that support it.
 
-2. [nbd backend](#backend) storage types define how a [persistent](#persistent) [vdisk](#vdisk)'s [data](#data) and [metadata](#metadata) is stored (1) in an [ARDB cluster](#ardb).
+2. [nbd backend](#backend) storage types define how a [persistent](#persistent) [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) is stored (1) in an [ARDB cluster](#ardb).
 
 3. [0-stor][0-stor] is used to store [TLog](#tlog) [data (2)](#data) and [metadata (4)](#metadata), using the [0-stor-lib][0-stor-lib].
 
 ### template
 
-A [boot](#boot) [vdisk](#vdisk) can make use of a template [storage (1)](#storage) cluster. From this cluster [blocks](#block) can be copied on-the-fly into the primary [storage (1)](#storage) cluster in case the latter doesn't have the required [block](#block) available. Note that this only works for a [boot](#boot) vdisk if it was created as a ([metadata](#metadata)) copy from the [vdisk](#vdisk) on that template [storage (1)](#storage) cluster using the the [zeroctl](#zeroctl) tool's [copy command][cmdcopy].
+A [boot](#boot) [vdisk](#vdisk) can make use of a template [storage (1)](#storage) cluster. From this cluster [blocks](#block) can be copied on-the-fly into the primary [storage (1)](#storage) cluster in case the latter doesn't have the required [block](#block) available. Note that this only works for a [boot](#boot) vdisk if it was created as a ([metadata (1)](#metadata)) copy from the [vdisk](#vdisk) on that template [storage (1)](#storage) cluster using the the [zeroctl](#zeroctl) tool's [copy command][cmdcopy].
 
 A [db](#db) [vdisk](#vdisk) can also make use of a template [storage (1)](#storage) cluster. However, it does not have any [metadata](#metadata) and thus does not required being copied first. Instead you simply declare a non-existent [db](#db) [vdisk](#vdisk) (with template [storage (1)](#storage) cluster defined) in the [config][config], and the [blocks](#block) will be copied into the primary [storage](#storage) cluster on-the-fly, the first time they are being read.
 
 ### TLog
 
-The Transaction [Log (3)](#log) (TLog) module provides a [server][tlogserver], [client][tlogclient] and player. Its purpose is to make [vdisk](#vdisk)'s [data](#data) and [metadata](#metadata) [redundant](#redundant) by storing all write transactions applied by the user in a seperate [storage (3)](#storage) in a secure and efficient manner.
+The Transaction [Log (3)](#log) (TLog) module provides a [server][tlogserver], [client][tlogclient] and player. Its purpose is to make [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) [redundant](#redundant) by storing all write transactions applied by the user in a seperate [storage (3)](#storage) in a secure and efficient manner.
 
 ## [ U - Z ]
 
 ### vdisk
 
-A Virtual Disk (vdisk) is the 0-Disk component which emulates an actual [block](#block) [storage (2)](#storage) device. The actual [data](#data) and [metadata](#metadata) of the vdisk is stored in an [ardb cluster](#ardb). Using the [nbd server](#nbd) it can be mounted and used as if it was a physical disk.
+A Virtual Disk (vdisk) is the 0-Disk component which emulates an actual [block](#block) [storage (2)](#storage) device. The actual [data (1)](#data) and [metadata (1,2,3)](#metadata) of the vdisk is stored in an [ardb cluster](#ardb). Using the [nbd server](#nbd) it can be mounted and used as if it was a physical disk.
 
 ### volume driver
 
-A volume driver defines the actual properties of a [vdisk](#vdisk). A driver is identified by a type. Examples of [vdisk](#vdisk) types are: [boot](#boot), [cache](#cache) and [db](#db).
+A volume driver defines the actual properties of a [vdisk](#vdisk). A driver is identified by a type. Examples of [vdisk](#vdisk) types are: [boot](#boot), [cache (1)](#cache) and [db](#db).
 
 ### zeroctl
 
