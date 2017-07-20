@@ -12,7 +12,7 @@ The TLog storage delegates the actual storage work to the [deduped][deduped]- or
 
 ![TLog Storage](/docs/assets/nbd_tlog_storage.png)
 
-Rather than defining actual [block][block] storage logic, the TLog storage has another purpose instead. All write (`SET`, `DELETE`, `MERGE`) operations are send asynchrounsouly to the [TLog Server][tlogserver], using the [TLog Client][tlogclient]. By doing so the [vdisk][vdisk] can be [rolled back][rollback] to an earlier [logged (2)][log] in history. Additionally the [Transaction Log][tlog] can also be used to create a new [vdisk][vdisk] using the [logged (2)][log] transactions of a TLog-supported [vdisk][vdisk].
+Rather than defining actual [block][block] storage logic, the TLog storage has another purpose instead. All write (`SET`, `DELETE`, `MERGE`) operations are send asynchrounsouly to the [TLog Server][tlogserver], using the [TLog Client][tlogclient]. By doing so the [vdisk][vdisk] can be [rolled back][rollback] to an earlier [logged (3)][log] in history. Additionally the [Transaction Log][tlog] can also be used to create a new [vdisk][vdisk] using the [logged (3)][log] transactions of a TLog-supported [vdisk][vdisk].
 
 For more information about the data [redundancy][redundant] provided by this storage you can read the [TLog docs][tlog].
 
@@ -20,10 +20,10 @@ For more information about the data [redundancy][redundant] provided by this sto
 
 Any read/write operation will fail if the underlying [storage (2)][storage] fails for any reason.
 
-[Logging (2)][log] transactions will fail if:
+[Logging (3)][log] transactions will fail if:
 
 + None of the [TLog servers][tlogserver] specified by the [configured][config] addresses are reachable;
-+ An uncaught failure happened in the used TLog server;
++ An uncaught failure happened in the used [TLog server][tlogserver];
 + The [VDisk][vdisk] was terminated  before all transactions were sent and processed by the [TLog server][tlogserver]; 
 
 
