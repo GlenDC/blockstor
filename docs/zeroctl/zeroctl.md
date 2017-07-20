@@ -26,25 +26,25 @@ Output the zeroctl version and runtime information.
 
 Copy a [vdisk]'s stored [data (1)][data] or [metadata (1,2,3)][metadata] as a new [vdisk][vdisk].
 
-### [`zeroctl delete vdisks`](/commands/delete.md#vdisks)
+### [`zeroctl delete vdisks`](commands/delete.md#vdisks)
 
 Delete a [vdisk][vdisk]'s stored [data (1)][data] and/or [metadata (1,2,3)][metadata].
 
-### [`zeroctl restore vdisk`](/commands/restore.md#vdisk)
+### [`zeroctl restore vdisk`](commands/restore.md#vdisk)
 
 Restore a [vdisk][vdisk] (as a new [vdisk][vdisk]), using stored transactions for those [vdisks][vdisk] that have [TLog][tlog] support and have enabled it.
 
-### [`zeroctl list vdisks`](/commands/list.md#vdisks)
+### [`zeroctl list vdisks`](commands/list.md#vdisks)
 
 List all available [vdisks][vdisk] on a given [storage (1)][storage] server.
 
 NOTE: this command is slow if used on a [storage (1)][storage] server which has a lot of keys. Use this command with precaution.
 
-### [`zeroctl export vdisk`](/commands/export.md#vdisk)
+### [`zeroctl export vdisk`](commands/export.md#vdisk)
 
 Export a [stored (1)][storage] [vdisk][vdisk] in a secure and efficient manner onto a (S)FTP server, in essense making a [backup][backup] of the [vdisk][vdisk] in question.
 
-### [`zeroctl import vdisk`](/commands/import.md#vdisk)
+### [`zeroctl import vdisk`](commands/import.md#vdisk)
 
 Import a [vdisk][vdisk] [backup][backup] from a (S)FTP server and [store (1)][storage] it as a (new) [vdisk][vdisk].
 
