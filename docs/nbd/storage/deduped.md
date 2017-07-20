@@ -4,6 +4,8 @@ Deduped storage is the underlying storage type for the [boot vdisk type][boot].
 
 The code for this storage type can be found in [/nbdserver/ardb/deduped.go](/nbdserver/ardb/deduped.go).
 
+You can read the [storage docs](/docs/nbd/storage/storage.md) for more information about other available storage types.
+
 ## Storage
 
 Deduped storage stores any given [block][block] only once. Meaning it has no duplicated [blocks][block], hence its name. All [blocks][block] are identified by their [hash][hash], and an [LBA][lba] scheme is used to map each [block index (2)][index] to the correct [block][block] [hash][hash].

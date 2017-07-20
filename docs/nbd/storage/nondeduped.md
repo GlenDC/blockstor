@@ -4,6 +4,8 @@ Non Deduped storage is the underlying storage type for the [db][db]- and [cache]
 
 The code for this storage type can be found in [/nbdserver/ardb/nondeduped.go](/nbdserver/ardb/nondeduped.go).
 
+You can read the [storage docs](/docs/nbd/storage/storage.md) for more information about other available storage types.
+
 ## Storage
 
 Non Deduped storage stores all [blocks][block] in [ARDB][ardb] hashmaps, one hashmap per [data][data] [storage (1)][storage] server. The key of each hashmap is in the prefixed "`nondedup:<vdiskID>`" format, while the fields are the block [indices (2)][index]. The hashmap's key prefix is defined by the [`ardb.NonDedupedStorageKeyPrefix`](/nbdserver/ardb/nondeduped.go#L220) constant. "`nondedup:foo`" is an example of such a hashmap key, where the `vdiskID` is "`foo`".
