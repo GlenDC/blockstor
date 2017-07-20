@@ -10,7 +10,9 @@ Deduped storage stores any given [block][block] only once. Meaning it has no dup
 
 ![Deduped Storage](/docs/assets/nbd_deduped_storage.png)
 
-For those [vdisks][vdisk] that have [template][template] support, [blocks][block] can also be fetched from the [template server][template] in case it is not available in the primary [storage (1)][storage] cluster.
+For those [vdisks][vdisk] that have [template][template] support, [blocks][block] can also be fetched from the [template server][template] in case they are not available in the primary [storage (1)][storage] cluster.
+
+> WARNING: [template][template] support for a deduped [vdisk][vdisk] _A_ only works if the [metadata (1)][metadata] from the [vdisk](#vdisk) on the used template [storage (1)](#storage) cluster was copied prior to mounting that [vdisk][vdisk] _A_. You can copy a [vdisk][vdisk]'s [metadata (1)][metadata] using the the [zeroctl](#zeroctl) tool's [copy command][cmdcopy].
 
 This storage spreads its data over all available [data (1)][data] [storage (1)][storage] servers. Which specific [storage (1)][storage] server a block is being written to, is defined by following formula:
 
@@ -74,3 +76,5 @@ Any read/write operation will fail if:
 [index]: /docs/glossary.md#index
 [hash]: /docs/glossary.md#hash
 [boot]: /docs/glossary.md#boot
+[zeroctl]: /docs/glossary.md#zeroctl
+[cmdcopy]: /docs/zeroctl/commands/copy.md
