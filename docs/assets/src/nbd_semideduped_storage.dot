@@ -9,7 +9,7 @@ digraph {
             label = "metadata: redis key value"
 
             rawbm [
-                label = "{ [VDiskID] | <bm> bitmap }"
+                label = "{ prefix:[vdiskID] | <bm> bitmap }"
                 shape = "record"
             ]
         }
@@ -20,8 +20,10 @@ digraph {
         shape = "record"
     ]
 
-    rawbm -> bitmap:im [ label = "new semidedup\nstorage" ]
-    bitmap:im -> rawbm [ label = "flush semidedup\nstorage" ]
+    rawbm -> bitmap:im [
+        label = "new/flush\nsemidedup storage"
+        dir = "none"
+    ]
 
     dedup [
         label = "{ <r> read | dedup\nstorage }"

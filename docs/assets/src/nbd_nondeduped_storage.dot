@@ -10,7 +10,7 @@ digraph {
             style = "dotted"
 
             dataFields [
-                label = "{ [VdiskID] | { <b0> block 0 | <b1> ... | <b2> block N } }"
+                label = "{ prefix:[VDiskID] | { <b0> block 0 | <b1> ... | <b2> block N } }"
                 shape = "record"
             ]
         }
@@ -41,7 +41,7 @@ digraph {
             style = "dotted"
 
             templateDataFields [
-                label = "{ [TemplateVdiskID] | { <b0> block 0 | <b1> ... | <b2> block N } }"
+                label = "{ prefix:[TemplateVDiskID] | { <b0> block 0 | <b1> ... | <b2> block N } }"
                 shape = "record"
             ]
         }
