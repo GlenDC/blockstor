@@ -1,7 +1,5 @@
 # Using your NBD Server
 
-TODO: update
-
 This documentation supplements the usage instructions in the [README](/nbdserver/readme.md) of the [`nbdserver`](/nbdserver) source directory.
 
 Options:

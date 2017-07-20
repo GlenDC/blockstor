@@ -1,9 +1,5 @@
 # NBD Server Configuration
 
-TODO: Update
-
-This documentation supplements the configuration instructions in the [README](/nbdserver/readme.md) of the [`nbdserver`](/nbdserver) source directory.
-
 The NBD server and its backend is configured using a YAML configuration file.
 
 The [`ClusterClientFactory`][clusterclientfactory], [`BackendFactory`][backendfactory] and so on, all take a file path to this YAML configuration file.
