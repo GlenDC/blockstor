@@ -118,6 +118,10 @@ Both the [boot](#boot)- and [db](#db) [vdisk](#vdisk) types have support to make
 + When [TLog](tlog) support is enabled, a [slave](#slave) [storage (1)](#storage) cluster also be specified in the [vdisk](#vdisk)'s [TLog config][tlogconfig];
 + A [vdisk](#vdisk) can also make a [backup](#backup) of itself;
 
+### replay
+
+All [logged (3)](#log) ([TLog](#tlog)) transactions can be played back in sequence using the [TLog Player](#player) up to any given time or sequence in tracked history, usually done so using the [zeroctl](#zeroctl) tool.
+
 ### restore
 
 [Redundant](#redundant) content can be restored using the [TLog Player](#player) to any given time or sequence in tracked history, usually done so using the [zeroctl](#zeroctl) tool.
@@ -156,7 +160,7 @@ A [db](#db) [vdisk](#vdisk) can also make use of a template [storage (1)](#stora
 
 The Transaction [Log (3)](#log) (TLog) module provides a [server][tlogserver], [client][tlogclient] and player. Its purpose is to make [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) [redundant](#redundant) by storing all write transactions applied by the user in a seperate [storage (3)](#storage) in a secure and efficient manner.
 
-Both the [boot](#boot)- and [db](#db)- [vdisk](#vdisk) types have TLog support. [VDisks](#vdisk) of this type can enable it by defining a TLog [storage (1)](#storage) cluster in its configuration.
+Both the [boot](#boot)- and [db](#db) [vdisk](#vdisk) types have TLog support. [VDisks](#vdisk) of this type can enable it by defining a TLog [storage (1)](#storage) cluster in its configuration.
 
 ### tmp
 
