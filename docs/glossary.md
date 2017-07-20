@@ -38,7 +38,7 @@ Boot is one of the available [vdisk](#vdisk) types. It uses the [deduped storage
 
 ### data
 
-1. Data in the context of [vdisks](#vdisk) refers usually to the actual [blocks](#block) which make up the [vdisk](#vdisk), be it being a block device. See the [NBD docs][nbd] for more info.
+1. Data in the context of [vdisks](#vdisk) refers usually to the actual [blocks](#block), which are [stored](#storage) on an [ARDB](#ardb) cluster. See the [NBD docs][nbd] for more info.
 
 2. [TLog Transactions](#tlog) are sometimes also refered to as data, especially in the context of the [TLog server][tlogserver].
 

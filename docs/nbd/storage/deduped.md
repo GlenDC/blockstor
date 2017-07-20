@@ -21,7 +21,7 @@ where N is the amount of primary/template
 data servers specified in the vdisk's config
 ```
 
-As noted before, deduped blocks (= [data (1)][data]) are stored on the [data][data] [storage (1)][storage] cluster. On which each [block][block] is stored as an individual value using the [hash][hash] of that [block][block] as its key.
+As noted before, deduped blocks are stored on the [data (1)][data] [storage (1)][storage] cluster. On which each [block][block] is stored as an individual value using the [hash][hash] of that [block][block] as its key.
 
 ## LBA
 
@@ -32,7 +32,7 @@ The [LBA][lba] speeds reading up in two different ways:
 + It bundles and stores [hashes][hash] in [sectors][sector]. Each sector contains `128` [hashes][hash], this makes sequential reads/writes much faster.
 + It [caches (2)][cache] sectors in a max capped [LRU cache][lru].
 
-The sector [hash][hash] count of `128` is defined by [`lba.NumberOfRecordsPerLBASector`](/nbdserver/lba/sector.go#13) constant. A sector has a fixed size of 4 KiB (due to the fact that a [hash][hash] has a fixed size of 32 bytes) and can address 512 KiB (if the block size is 4 KiB). The bigger the block size, the more [data (1)][data] a [sector][sector] can address.
+The sector [hash][hash] count of `128` is defined by [`lba.NumberOfRecordsPerLBASector`](/nbdserver/lba/sector.go#L13) constant. A sector has a fixed size of 4 KiB (due to the fact that a [hash][hash] has a fixed size of 32 bytes) and can address 512 KiB (if the block size is 4 KiB). The bigger the block size, the more [data (1)][data] a [sector][sector] can address.
 
 Because the use of [sectors][sector], we need to calculate the `sectorIndex` whenever we want to read/write a hash to/from a `sector`, using the following formula:
 
@@ -45,7 +45,7 @@ where N is equal to the
 
 Meaning that a [hash][hash] for [block index (2)][index] `200` would be stored in the `2nd` sector.
 
-[LBA][lba] sectors are stored together in the [metadata (1)][metadata] [storage (1)][storage] server (of the primary [storage (1)][storage] cluster) in an [ARDB][ardb] hashmap. The key of this hashmap is in the prefixed "`lba:<vdiskID>`" format, while the fields are the sector [indices (3)][index]. The hashmap's key prefix is defined by the [`lba.StorageKeyPrefix`](/nbdserver/lba/lba.go#323) constant. "`lba:foo`" is an example of such a hashmap key, where the `vdiskID` is "`foo`".
+[LBA][lba] sectors are stored together in the [metadata (1)][metadata] [storage (1)][storage] server (of the primary [storage (1)][storage] cluster) in an [ARDB][ardb] hashmap. The key of this hashmap is in the prefixed "`lba:<vdiskID>`" format, while the fields are the sector [indices (3)][index]. The hashmap's key prefix is defined by the [`lba.StorageKeyPrefix`](/nbdserver/lba/lba.go#L323) constant. "`lba:foo`" is an example of such a hashmap key, where the `vdiskID` is "`foo`".
 
 The code for the [LBA][lba] code can be found in [/nbdserver/lba/lba.go](/nbdserver/lba/lba.go).
 
