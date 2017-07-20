@@ -1,6 +1,6 @@
 # zeroctl
 
-The 0-Disk command line tool (zeroctl) allows you to manage and discover vdisks.
+The 0-Disk command line tool (zeroctl) allows you to manage and discover [vdisks][vdisk].
 
 ## Installing zeroctl
 
@@ -16,7 +16,7 @@ OUTPUT=$GOPATH/bin make zeroctl
 
 Here we'll give a quick overview of each command. Each command also has more elaborate documentation which can be accessed by clicking on the command.
 
-Information on how to use each command can also be accessed using `zeroctl help [command]`, e.g. `zeroctl help copy vdisk` will give output how to copy vdisks using that command.
+Information on how to use each command can also be accessed using `zeroctl help [command]`, e.g. `zeroctl help copy vdisk` will give output how to copy [vdisks][vdisk] using that command.
 
 ### [`zeroctl version`](commands/version.md)
 
@@ -32,7 +32,7 @@ Delete a [vdisk][vdisk]'s stored [data (1)][data] and/or [metadata (1,2,3)][meta
 
 ### [`zeroctl restore vdisk`](commands/restore.md#vdisk)
 
-Restore a [vdisk][vdisk] (as a new [vdisk][vdisk]), using stored transactions for those [vdisks][vdisk] that have [TLog][tlog] support and have enabled it.
+[Restore][restore] a [vdisk][vdisk] (as a new [vdisk][vdisk]), using stored transactions for those [vdisks][vdisk] that have [TLog][tlog] support and have enabled it.
 
 ### [`zeroctl list vdisks`](commands/list.md#vdisks)
 
@@ -54,3 +54,4 @@ Import a [vdisk][vdisk] [backup][backup] from a (S)FTP server and [store (1)][st
 [metadata]: /docs/glossary.md#metadata
 [vdisk]: /docs/glossary.md#vdisk
 [tlog]: /docs/glossary.md#tlog
+[restore]: /docs/restore.md#tlog
