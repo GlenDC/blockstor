@@ -2,7 +2,7 @@
 
 Semi Deduped storage is already implemented, but not yet used for any existing [vdisk][vdisk] types.
 
-The code for this storage type can be found in [/nbdserver/ardb/nondeduped.go](/nbdserver/ardb/nondeduped.go).
+The code for this storage type can be found in [/nbdserver/ardb/semideduped.go](/nbdserver/ardb/semideduped.go).
 
 You can read the [storage docs](/docs/nbd/storage/storage.md) for more information about other available storage types.
 

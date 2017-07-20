@@ -156,6 +156,8 @@ A [db](#db) [vdisk](#vdisk) can also make use of a template [storage (1)](#stora
 
 The Transaction [Log (3)](#log) (TLog) module provides a [server][tlogserver], [client][tlogclient] and player. Its purpose is to make [vdisk](#vdisk)'s [data (1)](#data) and [metadata (1,2,3)](#metadata) [redundant](#redundant) by storing all write transactions applied by the user in a seperate [storage (3)](#storage) in a secure and efficient manner.
 
+Both the [boot](#boot)- and [db](#db)- [vdisk](#vdisk) types have TLog support. [VDisks](#vdisk) of this type can enable it by defining a TLog [storage (1)](#storage) cluster in its configuration.
+
 ### tmp
 
 tmp (short for Temporary) is one of the available [vdisk](#vdisk) types. It uses the [nondeduped storage](#nondeduped) as its underlying [storage (2)](#storage) type. Its [data (1)](#data) is persistent as long as it mounted via the [NBD server](#nbd). The [vdisk](#vdisk) is deleted as soon as it is unmounted. See the [NBD docs][nbd] for a more info..
