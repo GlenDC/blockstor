@@ -7,8 +7,8 @@ import (
 	"github.com/zero-os/0-Disk/log"
 )
 
-// newInMemoryStorage returns the in-memory backendStorage implementation
-func newInMemoryStorage(vdiskID string, blockSize int64) backendStorage {
+// newInMemoryStorage returns the in-memory BlockStorage implementation
+func newInMemoryStorage(vdiskID string, blockSize int64) BlockStorage {
 	return &inMemoryStorage{
 		blockSize: blockSize,
 		vdiskID:   vdiskID,
@@ -16,7 +16,7 @@ func newInMemoryStorage(vdiskID string, blockSize int64) backendStorage {
 	}
 }
 
-// inMemoryStorage is a backendStorage implementation,
+// inMemoryStorage is a BlockStorage implementation,
 // that simply stores each block in-memory,
 // only meant for dev and test purposes.
 // Altought we might want to turn this into a proper supported storage,
@@ -29,7 +29,7 @@ type inMemoryStorage struct {
 	mux       sync.RWMutex
 }
 
-// Set implements backendStorage.Set
+// Set implements BlockStorage.Set
 func (ms *inMemoryStorage) Set(blockIndex int64, content []byte) (err error) {
 	ms.mux.Lock()
 	defer ms.mux.Unlock()
@@ -49,7 +49,7 @@ func (ms *inMemoryStorage) Set(blockIndex int64, content []byte) (err error) {
 	return
 }
 
-// Get implements backendStorage.Get
+// Get implements BlockStorage.Get
 func (ms *inMemoryStorage) Get(blockIndex int64) (content []byte, err error) {
 	ms.mux.RLock()
 	defer ms.mux.RUnlock()
@@ -58,7 +58,7 @@ func (ms *inMemoryStorage) Get(blockIndex int64) (content []byte, err error) {
 	return
 }
 
-// Delete implements backendStorage.Delete
+// Delete implements BlockStorage.Delete
 func (ms *inMemoryStorage) Delete(blockIndex int64) (err error) {
 	ms.mux.Lock()
 	defer ms.mux.Unlock()
@@ -67,9 +67,9 @@ func (ms *inMemoryStorage) Delete(blockIndex int64) (err error) {
 	return
 }
 
-// Flush implements backendStorage.Flush
+// Flush implements BlockStorage.Flush
 func (ms *inMemoryStorage) Flush() (err error) {
-	// nothing to do for the in-memory backendStorage
+	// nothing to do for the in-memory BlockStorage
 	return
 }
 
@@ -84,8 +84,8 @@ func (ms *inMemoryStorage) isZeroContent(content []byte) bool {
 	return true
 }
 
-// Close implements backendStorage.Close
+// Close implements BlockStorage.Close
 func (ms *inMemoryStorage) Close() error { return nil }
 
-// GoBackground implements backendStorage.GoBackground
+// GoBackground implements BlockStorage.GoBackground
 func (ms *inMemoryStorage) GoBackground(context.Context) {}

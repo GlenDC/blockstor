@@ -13,25 +13,25 @@ import (
 	"github.com/zero-os/0-Disk/gonbdserver/nbd"
 )
 
-func newBackend(vdiskID string, blockSize int64, size uint64, storage backendStorage, redisProvider *redisProvider, vComp *vdiskCompletion) *Backend {
+func newBackend(vdiskID string, size uint64, blockSize int64, storage BlockStorage, vComp *vdiskCompletion, connProvider ConnProvider) *Backend {
 	return &Backend{
-		vdiskID:       vdiskID,
-		blockSize:     blockSize,
-		size:          size,
-		storage:       storage,
-		redisProvider: redisProvider,
-		vComp:         vComp,
+		vdiskID:      vdiskID,
+		blockSize:    blockSize,
+		size:         size,
+		storage:      storage,
+		connProvider: connProvider,
+		vComp:        vComp,
 	}
 }
 
 //Backend is a nbd.Backend implementation on top of ARDB
 type Backend struct {
-	vdiskID       string
-	blockSize     int64
-	size          uint64
-	storage       backendStorage
-	redisProvider *redisProvider
-	vComp         *vdiskCompletion
+	vdiskID      string
+	blockSize    int64
+	size         uint64
+	storage      BlockStorage
+	connProvider ConnProvider
+	vComp        *vdiskCompletion
 }
 
 //WriteAt implements nbd.Backend.WriteAt
@@ -183,8 +183,8 @@ func (ab *Backend) Flush(ctx context.Context) (err error) {
 
 //Close implements nbd.Backend.Close
 func (ab *Backend) Close(ctx context.Context) (err error) {
-	if ab.redisProvider != nil {
-		ab.redisProvider.Close()
+	if ab.connProvider != nil {
+		ab.connProvider.Close()
 	}
 
 	err = ab.storage.Close()

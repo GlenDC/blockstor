@@ -59,16 +59,13 @@ func copyTestMetaData(t *testing.T, vdiskIDA, vdiskIDB string, providerA, provid
 }
 
 func createTestDedupedStorage(t *testing.T, vdiskID string, blockSize, blockCount int64, templateSupport bool, provider *testRedisProvider) *dedupedStorage {
-	lba, err := lba.NewLBA(
-		vdiskID,
-		blockCount,
-		DefaultLBACacheLimit,
-		provider)
+	storage, err := NewDedupedStorage(
+		vdiskID, int64(blockSize*blockCount), blockSize, DefaultLBACacheLimit, templateSupport, provider)
 	if err != nil {
-		t.Fatal("couldn't create LBA", err)
+		t.Fatalf("creating deduped storage failed: %v", err)
 	}
 
-	return newDedupedStorage(vdiskID, blockSize, provider, templateSupport, lba).(*dedupedStorage)
+	return storage.(*dedupedStorage)
 }
 
 // testDedupContentExists tests if

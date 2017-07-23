@@ -7,13 +7,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testBackendReadWrite(ctx context.Context, t *testing.T, vdiskID string, blockSize int64, size uint64, storage backendStorage) {
+func testBackendReadWrite(ctx context.Context, t *testing.T, vdiskID string, blockSize int64, size uint64, storage BlockStorage) {
 	if !assert.NotNil(t, storage) {
 		return
 	}
 
 	vComp := new(vdiskCompletion)
-	backend := newBackend(vdiskID, blockSize, size, storage, nil, vComp)
+	backend := newBackend(vdiskID, size, blockSize, storage, vComp, nil)
 	if !assert.NotNil(t, backend) {
 		return
 	}

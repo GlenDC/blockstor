@@ -6,8 +6,8 @@ import (
 	"github.com/zero-os/0-Disk/log"
 )
 
-// newNonDedupedStorage returns the non deduped backendStorage implementation
-func newNonDedupedStorage(vdiskID, templateVdiskID string, blockSize int64, templateSupport bool, provider redisDataConnProvider) backendStorage {
+// NewNonDedupedStorage returns the non deduped BlockStorage implementation
+func NewNonDedupedStorage(vdiskID, templateVdiskID string, blockSize int64, templateSupport bool, provider DataConnProvider) (BlockStorage, error) {
 	nondeduped := &nonDedupedStorage{
 		blockSize:          blockSize,
 		storageKey:         NonDedupedStorageKey(vdiskID),
@@ -26,10 +26,10 @@ func newNonDedupedStorage(vdiskID, templateVdiskID string, blockSize int64, temp
 		nondeduped.getContent = nondeduped.getPrimaryContent
 	}
 
-	return nondeduped
+	return nondeduped, nil
 }
 
-// nonDedupedStorage is a backendStorage implementation,
+// nonDedupedStorage is a BlockStorage implementation,
 // which simply stores each block in redis using
 // a unique key based on the vdiskID and blockIndex.
 type nonDedupedStorage struct {
@@ -38,7 +38,7 @@ type nonDedupedStorage struct {
 	templateStorageKey string                  // Storage Key based on templateVdiskID
 	vdiskID            string                  // ID for the vdisk
 	templateVdiskID    string                  // used in case template is supposed (same value as vdiskID if not defined)
-	provider           redisDataConnProvider   // used to get the connection info to storage servers
+	provider           DataConnProvider        // used to get the connection info to storage servers
 	getContent         nondedupedContentGetter // getter depends on whether there is template support or not
 }
 
@@ -46,7 +46,7 @@ type nonDedupedStorage struct {
 // it boils down to the question: does it have template support?
 type nondedupedContentGetter func(blockIndex int64) (content []byte, err error)
 
-// Set implements backendStorage.Set
+// Set implements BlockStorage.Set
 func (ss *nonDedupedStorage) Set(blockIndex int64, content []byte) (err error) {
 	// get a connection to a data storage server, based on the modulo blockIndex
 	conn, err := ss.provider.RedisConnection(blockIndex)
@@ -70,13 +70,13 @@ func (ss *nonDedupedStorage) Set(blockIndex int64, content []byte) (err error) {
 	return
 }
 
-// Get implements backendStorage.Get
+// Get implements BlockStorage.Get
 func (ss *nonDedupedStorage) Get(blockIndex int64) (content []byte, err error) {
 	content, err = ss.getContent(blockIndex)
 	return
 }
 
-// Delete implements backendStorage.Delete
+// Delete implements BlockStorage.Delete
 func (ss *nonDedupedStorage) Delete(blockIndex int64) (err error) {
 	// get a connection to a data storage server, based on the modulo blockIndex
 	conn, err := ss.provider.RedisConnection(blockIndex)
@@ -90,16 +90,16 @@ func (ss *nonDedupedStorage) Delete(blockIndex int64) (err error) {
 	return
 }
 
-// Flush implements backendStorage.Flush
+// Flush implements BlockStorage.Flush
 func (ss *nonDedupedStorage) Flush() (err error) {
-	// nothing to do for the nonDeduped backendStorage
+	// nothing to do for the nonDeduped BlockStorage
 	return
 }
 
-// Close implements backendStorage.Close
+// Close implements BlockStorage.Close
 func (ss *nonDedupedStorage) Close() error { return nil }
 
-// GoBackground implements backendStorage.GoBackground
+// GoBackground implements BlockStorage.GoBackground
 func (ss *nonDedupedStorage) GoBackground(context.Context) {}
 
 // (*nonDedupedStorage).getContent in case storage has no template support

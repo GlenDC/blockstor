@@ -3,7 +3,6 @@ package ardb
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/zero-os/0-Disk/log"
@@ -11,7 +10,6 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/gonbdserver/nbd"
-	"github.com/zero-os/0-Disk/nbdserver/lba"
 )
 
 // shared constants
@@ -130,65 +128,16 @@ func (f *BackendFactory) NewBackend(ctx context.Context, ec *nbd.ExportConfig) (
 	}
 	go redisProvider.Listen(ctx, vdiskID, f.cfgHotReloader)
 
-	var storage backendStorage
-	blockSize := int64(vdisk.BlockSize)
-
-	// The NBDServer config defines the vdisk size in GiB,
-	// (go)nbdserver however expects it in bytes, thus we have to convert it.
-	vdiskSize := int64(vdisk.Size) * gibibyteAsBytes
-
-	templateSupport := vdisk.TemplateSupport()
-
-	// create the actual storage backend used for this vdisk,
-	// which storage is used, is defined by the vdisk's storage type,
-	// which is in function of the vdisk's properties.
-	switch storageType := vdisk.StorageType(); storageType {
-	// non deduped storage
-	case config.StorageNonDeduped:
-		storage = newNonDedupedStorage(
-			vdiskID, vdisk.TemplateVdiskID, blockSize, templateSupport, redisProvider)
-
-	// (semi) deduped sotrage
-	case config.StorageDeduped, config.StorageSemiDeduped:
-		// define the LBA cache limit
-		cacheLimit := f.lbaCacheLimit
-		if cacheLimit < lba.BytesPerSector {
-			log.Infof(
-				"NewBackend: LBACacheLimit (%d) will be defaulted to %d (min-capped)",
-				cacheLimit, lba.BytesPerSector)
-			cacheLimit = DefaultLBACacheLimit
-		}
-
-		// define the block count based on the vdisk size and block size
-		blockCount := vdiskSize / blockSize
-		if vdiskSize%blockSize > 0 {
-			blockCount++
-		}
-
-		// create the LBA (used to store deduped metadata)
-		var vlba *lba.LBA
-		vlba, err = lba.NewLBA(
-			vdiskID,
-			blockCount,
-			cacheLimit,
-			redisProvider,
-		)
-		if err != nil {
-			log.Errorf("couldn't create LBA: %s", err.Error())
-			return
-		}
-
-		// create the actual (semi-)deduped storage
-		if storageType == config.StorageSemiDeduped {
-			storage = newSemiDedupedStorage(
-				vdiskID, blockSize, redisProvider, vlba)
-		} else { // config.StorageDeduped
-			storage = newDedupedStorage(
-				vdiskID, blockSize, redisProvider, templateSupport, vlba)
-		}
-
-	default:
-		err = fmt.Errorf("unsupported vdisk storage type %q", storageType)
+	// create the block storage based on the vdisk type:
+	// nondeduped, deduped or semideduped
+	storage, err := NewBlockStorage(
+		vdiskID,
+		cfg.Vdisk,
+		redisProvider,
+	)
+	if err != nil {
+		log.Error(err)
+		return
 	}
 
 	// If the vdisk has tlog support,
@@ -199,7 +148,8 @@ func (f *BackendFactory) NewBackend(ctx context.Context, ec *nbd.ExportConfig) (
 	if vdisk.TlogSupport() {
 		if tlogRPCAddrs := f.tlogRPCAddrs(); tlogRPCAddrs != "" {
 			log.Debugf("creating tlogStorage for backend %v (%v)", vdiskID, vdisk.Type)
-			storage, err = newTlogStorage(vdiskID, tlogRPCAddrs, f.configPath, blockSize, storage)
+			storage, err = newTlogStorage(
+				vdiskID, tlogRPCAddrs, f.configPath, int64(vdisk.BlockSize), storage)
 			if err != nil {
 				log.Infof("couldn't create tlog storage: %s", err.Error())
 				return
@@ -210,10 +160,10 @@ func (f *BackendFactory) NewBackend(ctx context.Context, ec *nbd.ExportConfig) (
 	// Create the actual ARDB backend
 	backend = newBackend(
 		vdiskID,
-		blockSize, uint64(vdiskSize),
+		vdisk.Size, int64(vdisk.BlockSize),
 		storage,
-		redisProvider,
 		f.vdiskComp,
+		redisProvider,
 	)
 
 	return
@@ -273,21 +223,25 @@ func newRedisProvider(pool *RedisPool, cfg *config.VdiskClusterConfig) (*redisPr
 	return provider, nil
 }
 
-// redisDataConnProvider defines the interface to get a redis connection,
+// DataConnProvider defines the interface to get an ARDB data connection,
 // based on a given index, used by the arbd storage backends
-type redisDataConnProvider interface {
+type DataConnProvider interface {
 	RedisConnection(index int64) (conn redis.Conn, err error)
 	TemplateRedisConnection(index int64) (conn redis.Conn, err error)
 }
 
-// redisMetaConnProvider defines the interface to get a redis meta connection.
-type redisMetaConnProvider interface {
+// MetadataConnProvider defines the interface to get an ARDB metadata connection.
+type MetadataConnProvider interface {
 	MetaRedisConnection() (conn redis.Conn, err error)
 }
 
-type redisConnProvider interface {
-	redisDataConnProvider
-	redisMetaConnProvider
+// ConnProvider defines the interface to get ARDB connections
+// to (meta)data storage servers.
+type ConnProvider interface {
+	DataConnProvider
+	MetadataConnProvider
+
+	Close() error
 }
 
 // redisProvider allows you to get a redis connection from a pool
@@ -393,9 +347,10 @@ func (rp *redisProvider) Listen(ctx context.Context, vdiskID string, hr config.H
 }
 
 // Close the internal redis pool and stop the listen goroutine.
-func (rp *redisProvider) Close() {
+func (rp *redisProvider) Close() error {
 	close(rp.done)
 	rp.redisPool.Close()
+	return nil
 }
 
 // Update all internally stored parameters we care about,

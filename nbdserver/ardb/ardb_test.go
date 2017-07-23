@@ -67,10 +67,16 @@ func (trp *testRedisProvider) TemplateRedisConnection(index int64) (redis.Conn, 
 	return trp.templatePool.Get(), nil
 }
 
-// shared test function to test all types of backendStorage equally,
+func (trp *testRedisProvider) Close() error {
+	trp.memRedis.Close()
+	trp.templateMemRedis.Close()
+	return nil
+}
+
+// shared test function to test all types of BlockStorage equally,
 // this gives us some confidence that all storages behave the same
 // from an end-user perspective
-func testBackendStorage(t *testing.T, storage backendStorage) {
+func testBackendStorage(t *testing.T, storage BlockStorage) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
 	go storage.GoBackground(ctx)
@@ -163,10 +169,10 @@ func testBackendStorage(t *testing.T, storage backendStorage) {
 	}
 }
 
-// shared test function to test all types of backendStorage equally,
+// shared test function to test all types of BlockStorage equally,
 // this gives us some confidence that all storages behave the same
 // from an end-user perspective
-func testBackendStorageForceFlush(t *testing.T, storage backendStorage) {
+func testBackendStorageForceFlush(t *testing.T, storage BlockStorage) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
 	go storage.GoBackground(ctx)
@@ -300,10 +306,10 @@ func testBackendStorageForceFlush(t *testing.T, storage backendStorage) {
 	}
 }
 
-// shared test function to test all types of backendStorage equally,
+// shared test function to test all types of BlockStorage equally,
 // and make sure they don't get in a deadlock situation, after being used for a while.
 // test in a response to https://github.com/zero-os/0-Disk/issues/89
-func testBackendStorageDeadlock(t *testing.T, blockSize, blockCount int64, storage backendStorage) {
+func testBackendStorageDeadlock(t *testing.T, blockSize, blockCount int64, storage BlockStorage) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
 	go storage.GoBackground(ctx)

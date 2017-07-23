@@ -14,7 +14,12 @@ import (
 )
 
 func createTestNondedupedStorage(t *testing.T, vdiskID string, blockSize int64, templateSupport bool, provider *testRedisProvider) *nonDedupedStorage {
-	return newNonDedupedStorage(vdiskID, vdiskID, blockSize, templateSupport, provider).(*nonDedupedStorage)
+	storage, err := NewNonDedupedStorage(vdiskID, "", blockSize, templateSupport, provider)
+	if err != nil {
+		t.Fatalf("couldn't create deduped storage: %v", err)
+	}
+
+	return storage.(*nonDedupedStorage)
 }
 
 // testNondedupContentExists tests if
@@ -305,7 +310,7 @@ func TestGetNondedupedTemplateContentDeadlock(t *testing.T) {
 			t.Fatal(i, err)
 		}
 		if bytes.Compare(contentArray[i], content) != 0 {
-			t.Fatal(i, "unexpected content")
+			t.Fatal(i, "unexpected content", contentArray[i], content)
 		}
 	}
 }

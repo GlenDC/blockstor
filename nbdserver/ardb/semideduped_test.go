@@ -5,22 +5,8 @@ import (
 	"testing"
 
 	"github.com/zero-os/0-Disk/log"
-	"github.com/zero-os/0-Disk/nbdserver/lba"
 	"github.com/zero-os/0-Disk/redisstub"
 )
-
-func createTestSemiDedupedStorage(t *testing.T, vdiskID string, blockSize, blockCount int64, provider *testRedisProvider) backendStorage {
-	lba, err := lba.NewLBA(
-		vdiskID,
-		blockCount,
-		DefaultLBACacheLimit,
-		provider)
-	if err != nil {
-		t.Fatal("couldn't create LBA", err)
-	}
-
-	return newSemiDedupedStorage(vdiskID, blockSize, provider, lba)
-}
 
 func TestSemiDedupedContentBasic(t *testing.T) {
 	const (
@@ -79,9 +65,9 @@ func TestSemiDedupedContentBasic(t *testing.T) {
 		newTestRedisProvider(templateRedis, nil),
 		redisProvider)
 
-	storage := createTestSemiDedupedStorage(t, "a", blockSize, blockCount, redisProvider)
-	if storage == nil {
-		t.Fatal("storage is nil")
+	storage, err := NewSemiDedupedStorage("a", int64(blockCount*blockSize), blockSize, DefaultLBACacheLimit, redisProvider)
+	if err != nil || storage == nil {
+		t.Fatalf("creating SemiDedupedStorage failed: %v", err)
 	}
 
 	const (
@@ -92,7 +78,7 @@ func TestSemiDedupedContentBasic(t *testing.T) {
 	)
 
 	// set some user content
-	err := storage.Set(userIndexA, userContentA)
+	err = storage.Set(userIndexA, userContentA)
 	if err != nil {
 		t.Fatalf("setting userIndexA failed: %v", err)
 	}

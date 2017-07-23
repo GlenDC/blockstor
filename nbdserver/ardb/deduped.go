@@ -10,8 +10,35 @@ import (
 	"github.com/zero-os/0-Disk/nbdserver/lba"
 )
 
-// newDedupedStorage returns the deduped backendStorage implementation
-func newDedupedStorage(vdiskID string, blockSize int64, provider redisDataConnProvider, templateSupport bool, vlba *lba.LBA) backendStorage {
+// NewDedupedStorage returns the deduped BlockStorage implementation
+func NewDedupedStorage(vdiskID string, vdiskSize, blockSize, lbaCacheLimit int64, templateSupport bool, provider ConnProvider) (BlockStorage, error) {
+	// define the block count based on the vdisk size and block size
+	blockCount := vdiskSize / blockSize
+	if vdiskSize%blockSize > 0 {
+		blockCount++
+	}
+
+	// define the LBA cache limit
+	cacheLimit := lbaCacheLimit
+	if cacheLimit < lba.BytesPerSector {
+		log.Infof(
+			"NewBackend: LBACacheLimit (%d) will be defaulted to %d (min-capped)",
+			cacheLimit, lba.BytesPerSector)
+		cacheLimit = DefaultLBACacheLimit
+	}
+
+	// create the LBA (used to store deduped metadata)
+	vlba, err := lba.NewLBA(
+		vdiskID,
+		blockCount,
+		cacheLimit,
+		provider,
+	)
+	if err != nil {
+		log.Errorf("couldn't create the LBA: %s", err.Error())
+		return nil, err
+	}
+
 	dedupedStorage := &dedupedStorage{
 		blockSize:       blockSize,
 		vdiskID:         vdiskID,
@@ -29,28 +56,28 @@ func newDedupedStorage(vdiskID string, blockSize int64, provider redisDataConnPr
 		dedupedStorage.getContent = dedupedStorage.getPrimaryContent
 	}
 
-	return dedupedStorage
+	return dedupedStorage, nil
 }
 
-// dedupedStorage is a backendStorage implementation,
+// dedupedStorage is a BlockStorage implementation,
 // that stores the content (the data) based on a hash unique to that content,
 // all hashes are linked to the vdisk using lba.LBA (the metadata).
 // The metadata and data are stored on seperate servers.
 // Accessing data is only ever possible by checking the metadata first.
 type dedupedStorage struct {
-	blockSize       int64                 // block size in bytes
-	vdiskID         string                // ID of the vdisk
-	zeroContentHash zerodisk.Hash         // a hash of a nil-block of blockSize
-	provider        redisDataConnProvider // used to get a connection to a storage server
-	lba             *lba.LBA              // the LBA used to get/set/modify the metadata (content hashes)
-	getContent      dedupedContentGetter  // getContent function used to get content, is always defined
+	blockSize       int64                // block size in bytes
+	vdiskID         string               // ID of the vdisk
+	zeroContentHash zerodisk.Hash        // a hash of a nil-block of blockSize
+	provider        DataConnProvider     // used to get a connection to a storage server
+	lba             *lba.LBA             // the LBA used to get/set/modify the metadata (content hashes)
+	getContent      dedupedContentGetter // getContent function used to get content, is always defined
 }
 
 // used to provide different content getters based on the vdisk properties
 // it boils down to the question: does it have template support?
 type dedupedContentGetter func(hash zerodisk.Hash) (content []byte, err error)
 
-// Set implements backendStorage.Set
+// Set implements BlockStorage.Set
 func (ds *dedupedStorage) Set(blockIndex int64, content []byte) (err error) {
 	hash := zerodisk.HashBytes(content)
 	if ds.zeroContentHash.Equals(hash) {
@@ -71,7 +98,7 @@ func (ds *dedupedStorage) Set(blockIndex int64, content []byte) (err error) {
 	return ds.lba.Set(blockIndex, hash)
 }
 
-// Get implements backendStorage.Get
+// Get implements BlockStorage.Get
 func (ds *dedupedStorage) Get(blockIndex int64) (content []byte, err error) {
 	hash, err := ds.lba.Get(blockIndex)
 	if err == nil && hash != nil && !hash.Equals(zerodisk.NilHash) {
@@ -80,7 +107,7 @@ func (ds *dedupedStorage) Get(blockIndex int64) (content []byte, err error) {
 	return
 }
 
-// Delete implements backendStorage.Delete
+// Delete implements BlockStorage.Delete
 func (ds *dedupedStorage) Delete(blockIndex int64) (err error) {
 	// first get hash
 	hash, _ := ds.lba.Get(blockIndex)
@@ -95,7 +122,7 @@ func (ds *dedupedStorage) Delete(blockIndex int64) (err error) {
 	return
 }
 
-// Flush implements backendStorage.Flush
+// Flush implements BlockStorage.Flush
 func (ds *dedupedStorage) Flush() (err error) {
 	err = ds.lba.Flush()
 	return
@@ -198,8 +225,8 @@ func (ds *dedupedStorage) setContent(hash zerodisk.Hash, content []byte) (succes
 	return
 }
 
-// Close implements backendStorage.Close
+// Close implements BlockStorage.Close
 func (ds *dedupedStorage) Close() error { return nil }
 
-// GoBackground implements backendStorage.GoBackground
+// GoBackground implements BlockStorage.GoBackground
 func (ds *dedupedStorage) GoBackground(context.Context) {}

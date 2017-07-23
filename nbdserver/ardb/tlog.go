@@ -26,10 +26,10 @@ const (
 	tlogFlushWait            = 15 * time.Second // maximum duration we wait for flush to finish
 )
 
-// newTlogStorage creates a tlog storage backendStorage,
+// newTlogStorage creates a tlog storage BlockStorage,
 // wrapping around a given backend storage,
 // piggy backing on the newTlogStorageWithClient function for the actual logic.
-func newTlogStorage(vdiskID, tlogrpc, configPath string, blockSize int64, storage backendStorage) (backendStorage, error) {
+func newTlogStorage(vdiskID, tlogrpc, configPath string, blockSize int64, storage BlockStorage) (BlockStorage, error) {
 	client, err := tlogclient.New(strings.Split(tlogrpc, ","), vdiskID, 0, true)
 	if err != nil {
 		return nil, fmt.Errorf("tlogStorage requires a valid tlogclient: %s", err.Error())
@@ -38,13 +38,13 @@ func newTlogStorage(vdiskID, tlogrpc, configPath string, blockSize int64, storag
 	return newTlogStorageWithClient(vdiskID, configPath, blockSize, client, storage)
 }
 
-// newTlogStorage creates a tlog storage backendStorage,
+// newTlogStorage creates a tlog storage BlockStorage,
 // wrapping around a given backend storage,
 // using the given tlog client to send its write transactions to the tlog server.
 func newTlogStorageWithClient(vdiskID, configPath string, blockSize int64, client tlogClient,
-	storage backendStorage) (backendStorage, error) {
+	storage BlockStorage) (BlockStorage, error) {
 	if storage == nil {
-		return nil, errors.New("tlogStorage requires a non-nil backendStorage")
+		return nil, errors.New("tlogStorage requires a non-nil BlockStorage")
 	}
 	if client == nil {
 		return nil, errors.New("tlogStorage requires a non-nil tlogClient")
@@ -64,7 +64,7 @@ func newTlogStorageWithClient(vdiskID, configPath string, blockSize int64, clien
 	}, nil
 }
 
-// tlogStorage is a backendStorage implementation,
+// tlogStorage is a BlockStorage implementation,
 // which is a special storage type in the series of storage implementations.
 // It doesn't store the actual data itself,
 // and instead wraps around another storage (e.g. nondeduped/deduped storage),
@@ -76,7 +76,7 @@ type tlogStorage struct {
 	vdiskID       string
 	mux           sync.RWMutex
 	tlog          tlogClient
-	storage       backendStorage
+	storage       BlockStorage
 	cache         sequenceCache
 	blockSize     int64
 	sequence      uint64
@@ -102,7 +102,7 @@ type transaction struct {
 	Size      uint64
 }
 
-// Set implements backendStorage.Set
+// Set implements BlockStorage.Set
 func (tls *tlogStorage) Set(blockIndex int64, content []byte) error {
 	tls.mux.Lock()
 	defer tls.mux.Unlock()
@@ -130,7 +130,7 @@ func (tls *tlogStorage) set(blockIndex int64, content []byte) error {
 	// get next tlog sequence index,
 	// never interact directly with tls.sequence
 	// as this is not thread safe,
-	// while any backendStorage HAS to be threadsafe
+	// while any BlockStorage HAS to be threadsafe
 	sequence := tls.getNextSequenceIndex()
 
 	// Add the transaction to cache.
@@ -167,7 +167,7 @@ func (tls *tlogStorage) set(blockIndex int64, content []byte) error {
 	return nil
 }
 
-// Get implements backendStorage.Get
+// Get implements BlockStorage.Get
 func (tls *tlogStorage) Get(blockIndex int64) (content []byte, err error) {
 	tls.mux.Lock()
 	defer tls.mux.Unlock()
@@ -186,7 +186,7 @@ func (tls *tlogStorage) Get(blockIndex int64) (content []byte, err error) {
 	return tls.get(blockIndex)
 }
 
-// Delete implements backendStorage.Delete
+// Delete implements BlockStorage.Delete
 func (tls *tlogStorage) Delete(blockIndex int64) (err error) {
 	tls.mux.Lock()
 	defer tls.mux.Unlock()
@@ -195,7 +195,7 @@ func (tls *tlogStorage) Delete(blockIndex int64) (err error) {
 	return
 }
 
-// Flush implements backendStorage.Flush
+// Flush implements BlockStorage.Flush
 func (tls *tlogStorage) Flush() (err error) {
 	tls.mux.Lock()
 	defer tls.mux.Unlock()
@@ -241,7 +241,7 @@ func (tls *tlogStorage) Flush() (err error) {
 	return
 }
 
-// Close implements backendStorage.Close
+// Close implements BlockStorage.Close
 func (tls *tlogStorage) Close() (err error) {
 	tls.storageMux.Lock()
 	defer tls.storageMux.Unlock()
@@ -259,7 +259,7 @@ func (tls *tlogStorage) Close() (err error) {
 	return
 }
 
-// GoBackground implements backendStorage.GoBackground
+// GoBackground implements BlockStorage.GoBackground
 func (tls *tlogStorage) GoBackground(ctx context.Context) {
 	defer func() {
 		log.Infof("GoBackground exited for vdisk: %v", tls.vdiskID)

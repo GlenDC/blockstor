@@ -226,7 +226,7 @@ func TestTlogStorageDeadlockWithNondeduped(t *testing.T) {
 	testTlogStorageDeadlock(ctx, t, vdiskID, blockSize, blockCount, storage)
 }
 
-func testTlogStorage(ctx context.Context, t *testing.T, vdiskID string, blockSize int64, storage backendStorage) {
+func testTlogStorage(ctx context.Context, t *testing.T, vdiskID string, blockSize int64, storage BlockStorage) {
 	tlogrpc := newTlogTestServer(ctx, t)
 	if !assert.NotEmpty(t, tlogrpc) {
 		return
@@ -240,7 +240,7 @@ func testTlogStorage(ctx context.Context, t *testing.T, vdiskID string, blockSiz
 	testBackendStorage(t, storage)
 }
 
-func testTlogStorageForceFlush(ctx context.Context, t *testing.T, vdiskID string, blockSize int64, storage backendStorage) {
+func testTlogStorageForceFlush(ctx context.Context, t *testing.T, vdiskID string, blockSize int64, storage BlockStorage) {
 	tlogrpc := newTlogTestServer(ctx, t)
 	if !assert.NotEmpty(t, tlogrpc) {
 		return
@@ -254,7 +254,7 @@ func testTlogStorageForceFlush(ctx context.Context, t *testing.T, vdiskID string
 	testBackendStorageForceFlush(t, storage)
 }
 
-func testTlogStorageDeadlock(ctx context.Context, t *testing.T, vdiskID string, blockSize, blockCount int64, storage backendStorage) {
+func testTlogStorageDeadlock(ctx context.Context, t *testing.T, vdiskID string, blockSize, blockCount int64, storage BlockStorage) {
 	tlogrpc := newTlogTestServer(ctx, t)
 	if !assert.NotEmpty(t, tlogrpc) {
 		return

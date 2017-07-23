@@ -34,7 +34,7 @@ func TestBackendSigtermHandler(t *testing.T) {
 		createTestNondedupedStorage(t, vdiskID, blockSize, false, provider))
 
 	// test Tlog Storage
-	testBackendSigtermHandler(ctx, t, vdiskID, blockSize, size, func() backendStorage {
+	testBackendSigtermHandler(ctx, t, vdiskID, blockSize, size, func() BlockStorage {
 		storage := newInMemoryStorage(vdiskID, blockSize)
 		if !assert.NotNil(t, storage) {
 			return nil
@@ -54,13 +54,13 @@ func TestBackendSigtermHandler(t *testing.T) {
 	}())
 }
 
-func testBackendSigtermHandler(ctx context.Context, t *testing.T, vdiskID string, blockSize int64, size uint64, storage backendStorage) {
+func testBackendSigtermHandler(ctx context.Context, t *testing.T, vdiskID string, blockSize int64, size uint64, storage BlockStorage) {
 	if !assert.NotNil(t, storage) {
 		return
 	}
 
 	vComp := new(vdiskCompletion)
-	backend := newBackend(vdiskID, blockSize, size, storage, nil, vComp)
+	backend := newBackend(vdiskID, size, blockSize, storage, vComp, nil)
 	if !assert.NotNil(t, backend) {
 		return
 	}

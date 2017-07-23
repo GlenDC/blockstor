@@ -7,40 +7,51 @@ import (
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/zero-os/0-Disk/log"
-	"github.com/zero-os/0-Disk/nbdserver/lba"
 )
 
-func newSemiDedupedStorage(vdiskID string, blockSize int64, provider redisConnProvider, vlba *lba.LBA) backendStorage {
+// NewSemiDedupedStorage returns the semi deduped BlockStorage implementation
+func NewSemiDedupedStorage(vdiskID string, vdiskSize, blockSize, lbaCacheLimit int64, provider ConnProvider) (BlockStorage, error) {
+	templateStorage, err := NewDedupedStorage(vdiskID, vdiskSize, blockSize, lbaCacheLimit, true, provider)
+	if err != nil {
+		return nil, err
+	}
+
+	userStorage, err := NewNonDedupedStorage(vdiskID, "", blockSize, false, provider)
+	if err != nil {
+		templateStorage.Close()
+		return nil, err
+	}
+
 	storage := &semiDedupedStorage{
-		templateStorage: newDedupedStorage(vdiskID, blockSize, provider, true, vlba),
-		userStorage:     newNonDedupedStorage(vdiskID, "", blockSize, false, provider),
+		templateStorage: templateStorage,
+		userStorage:     userStorage,
 		vdiskID:         vdiskID,
 		blockSize:       blockSize,
 		provider:        provider,
 	}
 
-	err := storage.readBitMap()
+	err = storage.readBitMap()
 	if err != nil {
 		log.Debugf("couldn't read semi deduped storage %s's bitmap: %v", vdiskID, err)
 	}
 
-	return storage
+	return storage, nil
 }
 
-// semiDedupedStorage is a backendStorage implementation,
+// semiDedupedStorage is a BlockStorage implementation,
 // that stores the template content in the primary deduped storage,
 // while it stores all user-written (and thus specific) data
 // in the a nondeduped storage, both storages using the same storage servers.
 type semiDedupedStorage struct {
 	// used to store template data
 	// (effectively read-only storage, from a user-perspective)
-	templateStorage backendStorage
+	templateStorage BlockStorage
 	// used to store user-specific data
 	// e.g. Modified Registers, Applications, ...
-	userStorage backendStorage
+	userStorage BlockStorage
 
 	// used to store the semi deduped metadata
-	provider redisMetaConnProvider
+	provider MetadataConnProvider
 
 	// bitmap used to indicate if the data is available as userdata or not
 	userStorageBitMap bitMap
@@ -52,7 +63,7 @@ type semiDedupedStorage struct {
 	blockSize int64
 }
 
-// Set implements backendStorage.Set
+// Set implements BlockStorage.Set
 func (sds *semiDedupedStorage) Set(blockIndex int64, content []byte) error {
 	err := sds.userStorage.Set(blockIndex, content)
 	if err != nil {
@@ -84,7 +95,7 @@ func (sds *semiDedupedStorage) Set(blockIndex int64, content []byte) error {
 	return nil
 }
 
-// Get implements backendStorage.Get
+// Get implements BlockStorage.Get
 func (sds *semiDedupedStorage) Get(blockIndex int64) ([]byte, error) {
 	// if a bit is enabled in the bitmap,
 	// it means the data is stored in the user storage
@@ -95,7 +106,7 @@ func (sds *semiDedupedStorage) Get(blockIndex int64) ([]byte, error) {
 	return sds.templateStorage.Get(blockIndex)
 }
 
-// Delete implements backendStorage.Delete
+// Delete implements BlockStorage.Delete
 func (sds *semiDedupedStorage) Delete(blockIndex int64) error {
 	tErr := sds.templateStorage.Delete(blockIndex)
 
@@ -108,7 +119,7 @@ func (sds *semiDedupedStorage) Delete(blockIndex int64) error {
 	return combineErrorPair(tErr, uErr)
 }
 
-// Flush implements backendStorage.Flush
+// Flush implements BlockStorage.Flush
 func (sds *semiDedupedStorage) Flush() error {
 	tErr := sds.templateStorage.Flush()
 	uErr := sds.userStorage.Flush()
@@ -120,14 +131,14 @@ func (sds *semiDedupedStorage) Flush() error {
 	return combineErrorPair(storageErr, bitmapErr)
 }
 
-// Close implements backendStorage.Close
+// Close implements BlockStorage.Close
 func (sds *semiDedupedStorage) Close() error {
 	tErr := sds.templateStorage.Close()
 	uErr := sds.userStorage.Close()
 	return combineErrorPair(tErr, uErr)
 }
 
-// GoBackground implements backendStorage.GoBackground
+// GoBackground implements BlockStorage.GoBackground
 func (sds *semiDedupedStorage) GoBackground(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Add(2)
