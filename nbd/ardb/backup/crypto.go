@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"io/ioutil"
 )
 
 // static sizes
@@ -13,42 +14,55 @@ const (
 	CryptoKeySize = 32 // 256-bit key
 )
 
-func Encrypt(key *CryptoKey, plain []byte) (cipher []byte, err error) {
+// Encrypt a given plain text using
+// AES256 in Galois Counter Mode, with a random nonce.
+func Encrypt(key *CryptoKey, src io.Reader, dst io.Writer) error {
 	encrypter, err := NewEncrypter(key)
 	if err != nil {
-		return
+		return err
 	}
-
-	cipher, err = encrypter.Encrypt(plain)
-	return
+	return encrypter.Encrypt(src, dst)
 }
 
-func Decrypt(key *CryptoKey, cipher []byte) (plain []byte, err error) {
+// Decrypt a given cipher text,
+// previously encrypted using AES256 in Galois Counter Mode.
+func Decrypt(key *CryptoKey, src io.Reader, dst io.Writer) error {
 	decrypter, err := NewDecrypter(key)
 	if err != nil {
-		return
+		return err
 	}
-
-	plain, err = decrypter.Decrypt(plain)
-	return
+	return decrypter.Decrypt(src, dst)
 }
 
+// NewEncrypter creates an object using the given private key,
+// which allows you to encrypt plain text using AES256 in Galois Counter Mode.
 func NewEncrypter(key *CryptoKey) (Encrypter, error) {
 	return newAESSTDStreamCipher(key)
 }
 
+// NewDecrypter creates an object using the given private key,
+// which allows you to decrypt cipher text,
+// which was previously encrypted using AES256 in Galois Counter Mode.
 func NewDecrypter(key *CryptoKey) (Decrypter, error) {
 	return newAESSTDStreamCipher(key)
 }
 
+// Encrypter defines the API,
+// which allows you to encrypt a given plain text into cipher text.
+// By default we use AES256 in Galois Counter Mode.
 type Encrypter interface {
-	Encrypt(plain []byte) (cipher []byte, err error)
+	Encrypt(src io.Reader, dst io.Writer) error
 }
 
+// Decrypter defines the API,
+// which allows you to decrypt a given cipher text,
+// which was previously encrypted by the Encrypter which
+// acts as the counterpart of this interface.
 type Decrypter interface {
-	Decrypt(cipher []byte) (plain []byte, err error)
+	Decrypt(src io.Reader, dst io.Writer) error
 }
 
+// create a new AES256 encrypter/decrypter in Galois Counter Mode.
 func newAESSTDStreamCipher(key *CryptoKey) (stream *aesSTDStreamCipher, err error) {
 	if key == nil {
 		err = errors.New("no private key given")
@@ -73,25 +87,63 @@ type aesSTDStreamCipher struct {
 }
 
 // Encrypt implements Encrypter.Encrypt
-func (s *aesSTDStreamCipher) Encrypt(plain []byte) ([]byte, error) {
-	nonce := make([]byte, s.aesgcm.NonceSize())
-	_, err := io.ReadFull(rand.Reader, nonce)
+func (s *aesSTDStreamCipher) Encrypt(src io.Reader, dst io.Writer) error {
+	plain, err := ioutil.ReadAll(src)
 	if err != nil {
-		return nil, err
+		return err
+	}
+
+	nonce := make([]byte, s.aesgcm.NonceSize())
+	_, err = io.ReadFull(rand.Reader, nonce)
+	if err != nil {
+		return err
 	}
 
 	cipher := s.aesgcm.Seal(nonce, nonce, plain, nil)
-	return cipher, nil
+	_, err = dst.Write(cipher)
+	return err
 }
 
 // Decrypt implements Decrypter.Decrypt
-func (s *aesSTDStreamCipher) Decrypt(cipher []byte) ([]byte, error) {
-	nonceSize := s.aesgcm.NonceSize()
-	if len(cipher) < nonceSize {
-		return nil, errors.New("malformed ciphertext")
+func (s *aesSTDStreamCipher) Decrypt(src io.Reader, dst io.Writer) error {
+	cipher, err := ioutil.ReadAll(src)
+	if err != nil {
+		return err
 	}
 
-	return s.aesgcm.Open(nil, cipher[:nonceSize], cipher[nonceSize:], nil)
+	nonceSize := s.aesgcm.NonceSize()
+	if len(cipher) < nonceSize {
+		return errors.New("malformed ciphertext")
+	}
+
+	plain, err := s.aesgcm.Open(nil, cipher[:nonceSize], cipher[nonceSize:], nil)
+	if err != nil {
+		return err
+	}
+
+	_, err = dst.Write(plain)
+	return err
 }
 
+// CryptoKey defines the type of a CryptoKey
 type CryptoKey [CryptoKeySize]byte
+
+// String implements Value.String
+func (key CryptoKey) String() string {
+	return string(key[:])
+}
+
+// Set implements Value.Set
+func (key CryptoKey) Set(value string) error {
+	if len(value) != CryptoKeySize {
+		return errors.New("wrong crypto key size")
+	}
+
+	copy(key[:], value)
+	return nil
+}
+
+// Type implements PValue.Type
+func (key CryptoKey) Type() string {
+	return "AESCryptoKey"
+}

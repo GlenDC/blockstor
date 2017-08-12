@@ -4,23 +4,18 @@ import (
 	"bytes"
 	"crypto/rand"
 	mrand "math/rand"
+	"sync"
 	"testing"
 )
 
-func TestCryptoAES(t *testing.T) {
-	encrypter, err := NewEncrypter(&privKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decrypter, err := NewDecrypter(&privKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestCompressLZ4(t *testing.T) {
+	compressor := LZ4Compressor()
+	decompressor := LZ4Decompressor()
 
-	testCrypto(t, encrypter, decrypter)
+	testCompress(t, compressor, decompressor)
 }
 
-func testCrypto(t *testing.T, encrypter Encrypter, decrypter Decrypter) {
+func testCompress(t *testing.T, compressor Compressor, decompressor Decompressor) {
 	randTestCase := make([]byte, 4*1024)
 	rand.Read(randTestCase)
 
@@ -40,9 +35,13 @@ func testCrypto(t *testing.T, encrypter Encrypter, decrypter Decrypter) {
 
 		// encrypt `hlround` times
 		bufA.Reset()
-		bufA.Write(original)
+		_, err = bufA.Write(original)
+		if err != nil {
+			t.Error(err)
+			break
+		}
 		for i := 0; i < hlrounds; i++ {
-			err = encrypter.Encrypt(&bufA, &bufB)
+			err = compressor.Compress(&bufA, &bufB)
 			if err != nil {
 				t.Error(err)
 				break
@@ -61,7 +60,7 @@ func testCrypto(t *testing.T, encrypter Encrypter, decrypter Decrypter) {
 		}
 		// decrypt `hlround` times
 		for i := 0; i < hlrounds; i++ {
-			err = decrypter.Decrypt(&bufA, &bufB)
+			err = decompressor.Decompress(&bufA, &bufB)
 			if err != nil {
 				t.Error(err)
 				break
@@ -89,38 +88,45 @@ func testCrypto(t *testing.T, encrypter Encrypter, decrypter Decrypter) {
 	}
 }
 
-func BenchmarkAES_4k(b *testing.B) {
-	benchmarkAES(b, 4*1024)
+func BenchmarkLZ4_4k(b *testing.B) {
+	benchmarkLZ4(b, 4*1024)
 }
 
-func BenchmarkAES_8k(b *testing.B) {
-	benchmarkAES(b, 8*1024)
+func BenchmarkLZ4_8k(b *testing.B) {
+	benchmarkLZ4(b, 8*1024)
 }
 
-func BenchmarkAES_16k(b *testing.B) {
-	benchmarkAES(b, 16*1024)
+func BenchmarkLZ4_16k(b *testing.B) {
+	benchmarkLZ4(b, 16*1024)
 }
 
-func BenchmarkAES_32k(b *testing.B) {
-	benchmarkAES(b, 32*1024)
+func BenchmarkLZ4_32k(b *testing.B) {
+	benchmarkLZ4(b, 32*1024)
 }
 
-func benchmarkAES(b *testing.B, size int64) {
-	encrypter, err := NewEncrypter(&privKey)
-	if err != nil {
-		b.Fatal(err)
-	}
-	decrypter, err := NewDecrypter(&privKey)
-	if err != nil {
-		b.Fatal(err)
-	}
+func benchmarkLZ4(b *testing.B, size int64) {
+	compressor := LZ4Compressor()
+	decompressor := LZ4Decompressor()
 
-	benchmarkCrypto(b, size, encrypter, decrypter)
+	benchmarkCompressor(b, size, compressor, decompressor)
 }
 
-func benchmarkCrypto(b *testing.B, size int64, encrypter Encrypter, decrypter Decrypter) {
+// TODO: get some proper sample data so we have a more appropriate input for the compressor
+//       as random data is not really compressable.
+
+func benchmarkCompressor(b *testing.B, size int64, compressor Compressor, decompressor Decompressor) {
 	in := make([]byte, size)
+	rand.Read(in)
 	b.SetBytes(size)
+
+	var cbytes []byte
+	var logCompressionRatioOnce sync.Once
+
+	logCompressionRatioOnceBody := func() {
+		dlen := int64(len(cbytes))
+		b.Logf("compressed %d bytes down to %d bytes (~%d times smaller)",
+			size, dlen, size/dlen)
+	}
 
 	for i := 0; i < b.N; i++ {
 		var err error
@@ -132,14 +138,17 @@ func benchmarkCrypto(b *testing.B, size int64, encrypter Encrypter, decrypter De
 			continue
 		}
 
-		err = encrypter.Encrypt(&bufA, &bufB)
+		err = compressor.Compress(&bufA, &bufB)
 		if err != nil {
 			b.Error(err)
 			continue
 		}
 
+		cbytes = bufB.Bytes()
+		logCompressionRatioOnce.Do(logCompressionRatioOnceBody)
+
 		bufA.Reset()
-		err = decrypter.Decrypt(&bufB, &bufA)
+		err = decompressor.Decompress(&bufB, &bufA)
 		if err != nil {
 			b.Error(err)
 			continue
@@ -148,17 +157,9 @@ func benchmarkCrypto(b *testing.B, size int64, encrypter Encrypter, decrypter De
 		result := bufA.Bytes()
 		if bytes.Compare(in, result) != 0 {
 			b.Errorf(
-				"decrypted package was expected to be %v, while received %v",
+				"decompressed package was expected to be %v, while received %v",
 				in, result)
 			continue
 		}
 	}
-}
-
-var (
-	privKey CryptoKey
-)
-
-func init() {
-	rand.Read(privKey[:])
 }
