@@ -5,6 +5,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zero-os/0-Disk"
@@ -18,10 +19,10 @@ import (
 // the deduped blocks and map which form a backup.
 type ServerDriver interface {
 	SetDedupedBlock(hash zerodisk.Hash, r io.Reader) error
-	SetDedupedMap(id string, dm *DedupedMap) error
+	SetDedupedMap(id string, r io.Reader) error
 
 	GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error
-	GetDedupedMap(id string) (*DedupedMap, error)
+	GetDedupedMap(id string, w io.Writer) error
 
 	Close() error
 }
@@ -45,14 +46,14 @@ func FTPDriver(address, username, password, root string) (ServerDriver, error) {
 	return &ftpDriver{
 		client:    client,
 		root:      root,
-		knownDirs: make(map[string]struct{}),
+		knownDirs: newDirCache(),
 	}, nil
 }
 
 type ftpDriver struct {
 	client    *goftp.Client
 	root      string
-	knownDirs map[string]struct{}
+	knownDirs *dirCache
 }
 
 // SetDedupedBlock implements ServerDriver.SetDedupedBlock
@@ -71,8 +72,13 @@ func (ftp *ftpDriver) SetDedupedBlock(hash zerodisk.Hash, r io.Reader) error {
 }
 
 // SetDedupedMap implements ServerDriver.SetDedupedMap
-func (ftp *ftpDriver) SetDedupedMap(id string, dm *DedupedMap) error {
-	return errors.New("TODO")
+func (ftp *ftpDriver) SetDedupedMap(id string, r io.Reader) error {
+	dir, err := ftp.mkdirs(backupDir)
+	if err != nil {
+		return err
+	}
+
+	return ftp.lazyStore(path.Join(dir, id), r)
 }
 
 // GetDedupedBlock implements ServerDriver.GetDedupedBlock
@@ -86,8 +92,8 @@ func (ftp *ftpDriver) GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error {
 }
 
 // GetDedupedMap implements ServerDriver.GetDedupedMap
-func (ftp *ftpDriver) GetDedupedMap(id string) (*DedupedMap, error) {
-	return nil, errors.New("TODO")
+func (ftp *ftpDriver) GetDedupedMap(id string, w io.Writer) error {
+	return ftp.client.Retrieve(path.Join(backupDir, id), w)
 }
 
 // Close implements ServerDriver.Close
@@ -106,7 +112,7 @@ func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
 	// cheap early check
 	// if we already known about the given dir,
 	// than we know it exists (or at least we assume it does)
-	if _, ok := ftp.knownDirs[dir]; ok {
+	if ftp.knownDirs.CheckDir(dir) {
 		return dir, nil // early success return
 	}
 
@@ -121,7 +127,7 @@ func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
 		pwd = path.Join(pwd, d)
 
 		// check if already checked this dir earlier
-		if _, ok := ftp.knownDirs[pwd]; ok {
+		if ftp.knownDirs.CheckDir(pwd) {
 			continue // current level exists (or we at least assume it does)
 		}
 
@@ -150,7 +156,7 @@ func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
 			return "", errors.New(pwd + " exists and is a file, not a dir")
 		}
 
-		ftp.knownDirs[pwd] = struct{}{}
+		ftp.knownDirs.AddDir(pwd)
 	}
 
 	// all directories either existed or were created
@@ -218,6 +224,32 @@ func (l ftpLogger) Write(p []byte) (n int, err error) {
 	log.Debugf("FTP Server (%s): %s", l.address, string(p))
 	return len(p), nil
 }
+
+func newDirCache() *dirCache {
+	return &dirCache{knownDirs: make(map[string]struct{})}
+}
+
+type dirCache struct {
+	knownDirs map[string]struct{}
+	mux       sync.RWMutex
+}
+
+func (cache *dirCache) AddDir(path string) {
+	cache.mux.Lock()
+	defer cache.mux.Unlock()
+	cache.knownDirs[path] = struct{}{}
+}
+
+func (cache *dirCache) CheckDir(path string) bool {
+	cache.mux.RLock()
+	defer cache.mux.RUnlock()
+	_, exists := cache.knownDirs[path]
+	return exists
+}
+
+const (
+	backupDir = "backups"
+)
 
 // some static errors returned by this file's API
 var (
