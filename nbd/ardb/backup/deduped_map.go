@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/zero-os/0-Disk"
-	"github.com/zero-os/0-Disk/nbd/ardb/backup/schema"
-	capnp "zombiezen.com/go/capnproto2"
+
+	"github.com/marksamman/bencode"
 )
 
 func NewDedupedMap() *DedupedMap {
@@ -19,46 +19,24 @@ func NewDedupedMap() *DedupedMap {
 }
 
 func DeserializeDedupedMap(key *CryptoKey, src io.Reader) (*DedupedMap, error) {
-	var bufA, bufB bytes.Buffer
+	bufA := bytes.NewBuffer(nil)
+	bufB := bytes.NewBuffer(nil)
 
-	err := Decrypt(key, src, &bufA)
+	err := Decrypt(key, src, bufA)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't (AES256_GCM) decrypt compressed dedupd map: %v", err)
+		return nil, fmt.Errorf("couldn't (AES256_GCM) decrypt compressed deduped map: %v", err)
 	}
-	err = Decompress(&bufA, &bufB)
+	err = Decompress(bufA, bufB)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't (LZ4) decompress dedupd map: %v", err)
+		return nil, fmt.Errorf("couldn't (LZ4) decompress deduped map: %v", err)
 	}
 
-	msg, err := capnp.NewDecoder(&bufB).Decode()
+	hashes, err := deserializeHashes(bufB)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't decode (capnp) encoded deduped map: %v", err)
-	}
-	dedupedMap, err := schema.ReadRootDedupedMap(msg)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't read (capnp) encoded deduped map: %v", err)
-	}
-	hashes, err := dedupedMap.Hashes()
-	if err != nil {
-		return nil, fmt.Errorf("couldn't read (capnp) hashes: %v", err)
+		return nil, fmt.Errorf("couldn't decode bencoded deduped map: %v", err)
 	}
 
-	n := hashes.Len()
-	hashmap := make(map[int64]zerodisk.Hash, n)
-
-	for i := 0; i < n; i++ {
-		pair := hashes.At(i)
-		hash, err := pair.Hash()
-		if err != nil {
-			return nil, fmt.Errorf("couldn't read hash #%d of %d hashes: %v", i, n, err)
-		}
-
-		hashmap[pair.Index()] = hash
-	}
-
-	return &DedupedMap{
-		hashes: hashmap,
-	}, nil
+	return &DedupedMap{hashes: hashes}, nil
 }
 
 type DedupedMap struct {
@@ -84,52 +62,90 @@ func (dm *DedupedMap) Serialize(key *CryptoKey, dst io.Writer) error {
 	dm.mux.RLock()
 	defer dm.mux.RUnlock()
 
-	hashCount := len(dm.hashes)
-	if hashCount == 0 {
-		return errors.New("deduped map is empty")
+	hmbuffer := bytes.NewBuffer(nil)
+	err := serializeHashes(dm.hashes, hmbuffer)
+	if err != nil {
+		return fmt.Errorf("couldn't bencode dedupd map: %v", err)
 	}
 
-	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	imbuffer := bytes.NewBuffer(nil)
+	err = Compress(hmbuffer, imbuffer)
 	if err != nil {
-		return fmt.Errorf("failed to build msg+segment: %v", err)
-	}
-	dedupedMap, err := schema.NewRootDedupedMap(seg)
-	if err != nil {
-		return fmt.Errorf("couldn't create capnp deduped map: %v", err)
-	}
-	hashes, err := dedupedMap.NewHashes(int32(hashCount))
-	if err != nil {
-		return fmt.Errorf("couldn't create capnp hash list: %v", err)
+		return fmt.Errorf("couldn't (lz4) compress bencoded dedupd map: %v", err)
 	}
 
-	for index, value := range dm.hashes {
-		pair, err := schema.NewIndexHashPair(seg)
-		if err != nil {
-			return fmt.Errorf("couldn't create capnp index-hash pair: %v", err)
-		}
-		pair.SetIndex(index)
-		pair.SetHash(value)
-		err = hashes.Set(int(index), pair)
-		if err != nil {
-			return fmt.Errorf("couldn't set capnp index-hash pair %d: %v", index, err)
-		}
-	}
-
-	var bufA, bufB bytes.Buffer
-	err = capnp.NewEncoder(&bufA).Encode(msg)
-	if err != nil {
-		return fmt.Errorf("couldn't (capnp) serialize dedupd map: %v", err)
-	}
-
-	err = Compress(&bufA, &bufB)
-	if err != nil {
-		return fmt.Errorf("couldn't (lz4) compress serialized dedupd map: %v", err)
-	}
-
-	err = Encrypt(key, &bufB, dst)
+	err = Encrypt(key, imbuffer, dst)
 	if err != nil {
 		return fmt.Errorf("couldn't (AES256_GCM) encrypt compressed dedupd map: %v", err)
 	}
 
 	return nil
 }
+
+func serializeHashes(hashes map[int64]zerodisk.Hash, w io.Writer) error {
+	hashCount := len(hashes)
+	if hashCount == 0 {
+		return errors.New("deduped map is empty")
+	}
+
+	indices := make([]interface{}, hashCount)
+	stringHashes := make([]interface{}, hashCount)
+	var i int
+	for index, hash := range hashes {
+		indices[i] = index
+		stringHashes[i] = string(hash.Bytes())
+		i++
+	}
+
+	dict := make(map[string]interface{})
+	dict[hashEncodeKeyCount] = hashCount
+	dict[hashEncodeKeyIndices] = indices
+	dict[hashEncodeKeyHashes] = stringHashes
+	binaryEncoded := bencode.Encode(dict)
+
+	_, err := w.Write(binaryEncoded)
+	return err
+}
+
+func deserializeHashes(r io.Reader) (map[int64]zerodisk.Hash, error) {
+	dict, err := bencode.Decode(r)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't read deduped map: %v", err)
+	}
+	hashCount, ok := dict[hashEncodeKeyCount].(int64)
+	if !ok {
+		return nil, errors.New("couldn't read hash count")
+	}
+	indices, ok := dict[hashEncodeKeyIndices].([]interface{})
+	if !ok || int64(len(indices)) != hashCount {
+		return nil, errors.New("couldn't read indices")
+	}
+	stringHashes, ok := dict[hashEncodeKeyHashes].([]interface{})
+	if !ok || int64(len(stringHashes)) != hashCount {
+		return nil, errors.New("couldn't read hashes")
+	}
+
+	hashes := make(map[int64]zerodisk.Hash, hashCount)
+	for i := int64(0); i < hashCount; i++ {
+		strHash, ok := stringHashes[i].(string)
+		if !ok || len(strHash) != zerodisk.HashSize {
+			return nil, fmt.Errorf("invalid hash #%d", i)
+		}
+		hash := zerodisk.Hash(strHash)
+
+		index, ok := indices[i].(int64)
+		if !ok {
+			return nil, fmt.Errorf("invalid index #%d", i)
+		}
+
+		hashes[index] = hash
+	}
+
+	return hashes, nil
+}
+
+const (
+	hashEncodeKeyCount   = "c"
+	hashEncodeKeyHashes  = "h"
+	hashEncodeKeyIndices = "i"
+)
