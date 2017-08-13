@@ -1,0 +1,89 @@
+package backup
+
+import (
+	"errors"
+	"io"
+	"io/ioutil"
+	"sync"
+
+	"github.com/zero-os/0-Disk"
+)
+
+// newStubDriver creates an in-memory Server Driver,
+// which is to be used for testing purposes only.
+func newStubDriver() *stubDriver {
+	return &stubDriver{
+		dedupedBlocks: make(map[string][]byte),
+		dedupedMaps:   make(map[string][]byte),
+	}
+}
+
+type stubDriver struct {
+	dedupedBlocks map[string][]byte
+	dedupedMaps   map[string][]byte
+
+	bmux, mmux sync.RWMutex
+}
+
+// SetDedupedBlock implements ServerDriver.SetDedupedBlock
+func (stub *stubDriver) SetDedupedBlock(hash zerodisk.Hash, r io.Reader) error {
+	bytes, err := ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	stub.bmux.Lock()
+	defer stub.bmux.Unlock()
+	stub.dedupedBlocks[string(hash)] = bytes
+	return nil
+}
+
+// SetDedupedMap implements ServerDriver.SetDedupedMap
+func (stub *stubDriver) SetDedupedMap(id string, r io.Reader) error {
+	bytes, err := ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	stub.mmux.Lock()
+	defer stub.mmux.Unlock()
+	stub.dedupedMaps[id] = bytes
+	return nil
+}
+
+// GetDedupedBlock implements ServerDriver.GetDedupedBlock
+func (stub *stubDriver) GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error {
+	stub.bmux.RLock()
+	defer stub.bmux.RUnlock()
+
+	bytes := stub.dedupedBlocks[string(hash)]
+	n, err := w.Write(bytes)
+	if err != nil {
+		return err
+	}
+	if n != len(bytes) {
+		return errors.New("couldn't write full block")
+	}
+	return nil
+}
+
+// GetDedupedMap implements ServerDriver.GetDedupedMap
+func (stub *stubDriver) GetDedupedMap(id string, w io.Writer) error {
+	stub.mmux.RLock()
+	defer stub.mmux.RUnlock()
+
+	bytes := stub.dedupedMaps[id]
+	n, err := w.Write(bytes)
+	if err != nil {
+		return err
+	}
+	if n != len(bytes) {
+		return errors.New("couldn't write full deduped map")
+	}
+	return nil
+}
+
+// Close implements ServerDriver.Close
+func (stub *stubDriver) Close() error {
+	return nil // nothing to do
+}
