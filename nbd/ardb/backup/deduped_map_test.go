@@ -9,6 +9,50 @@ import (
 	"github.com/zero-os/0-Disk"
 )
 
+func TestHashMapSerialization(t *testing.T) {
+	const (
+		hashCount = 1024 * 64
+	)
+
+	// create and set all hashes
+	hashes := make(map[int64]zerodisk.Hash)
+	for i := 0; i < hashCount; i++ {
+		hash := zerodisk.NewHash()
+		_, err := rand.Read(hash[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		hashes[int64(i)] = hash
+	}
+
+	buf := bytes.NewBuffer(nil)
+
+	// serialize
+	err := serializeHashes(hashes, buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf(
+		"hashmap with %d hashes (%d bytes) is serialized into %d bytes",
+		hashCount, ((zerodisk.HashSize + 4) * hashCount), len(buf.Bytes()))
+
+	// deserialize
+	outHashes, err := deserializeHashes(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for index, hash := range hashes {
+		outHash, ok := outHashes[index]
+		if !ok {
+			t.Errorf("couldn't find hash %d in out hashmap", index)
+			continue
+		}
+		assert.Equal(t, hash, outHash)
+	}
+}
+
 func TestDedupedMapSerialization(t *testing.T) {
 	dm := NewDedupedMap()
 

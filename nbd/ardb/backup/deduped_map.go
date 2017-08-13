@@ -9,7 +9,7 @@ import (
 
 	"github.com/zero-os/0-Disk"
 
-	"github.com/marksamman/bencode"
+	"github.com/zeebo/bencode"
 )
 
 func NewDedupedMap() *DedupedMap {
@@ -88,64 +88,49 @@ func serializeHashes(hashes map[int64]zerodisk.Hash, w io.Writer) error {
 		return errors.New("deduped map is empty")
 	}
 
-	indices := make([]interface{}, hashCount)
-	stringHashes := make([]interface{}, hashCount)
+	var format dedupedMapEncodeFormat
+	format.Count = int64(hashCount)
+
+	format.Indices = make([]int64, hashCount)
+	format.Hashes = make([][]byte, hashCount)
+
 	var i int
 	for index, hash := range hashes {
-		indices[i] = index
-		stringHashes[i] = string(hash.Bytes())
+		format.Indices[i] = index
+		format.Hashes[i] = hash.Bytes()
 		i++
 	}
 
-	dict := make(map[string]interface{})
-	dict[hashEncodeKeyCount] = hashCount
-	dict[hashEncodeKeyIndices] = indices
-	dict[hashEncodeKeyHashes] = stringHashes
-	binaryEncoded := bencode.Encode(dict)
-
-	_, err := w.Write(binaryEncoded)
-	return err
+	return bencode.NewEncoder(w).Encode(format)
 }
 
 func deserializeHashes(r io.Reader) (map[int64]zerodisk.Hash, error) {
-	dict, err := bencode.Decode(r)
+	var format dedupedMapEncodeFormat
+	err := bencode.NewDecoder(r).Decode(&format)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't read deduped map: %v", err)
-	}
-	hashCount, ok := dict[hashEncodeKeyCount].(int64)
-	if !ok {
-		return nil, errors.New("couldn't read hash count")
-	}
-	indices, ok := dict[hashEncodeKeyIndices].([]interface{})
-	if !ok || int64(len(indices)) != hashCount {
-		return nil, errors.New("couldn't read indices")
-	}
-	stringHashes, ok := dict[hashEncodeKeyHashes].([]interface{})
-	if !ok || int64(len(stringHashes)) != hashCount {
-		return nil, errors.New("couldn't read hashes")
+		return nil, fmt.Errorf("couldn't decode bencoded deduped map: %v", err)
 	}
 
-	hashes := make(map[int64]zerodisk.Hash, hashCount)
-	for i := int64(0); i < hashCount; i++ {
-		strHash, ok := stringHashes[i].(string)
-		if !ok || len(strHash) != zerodisk.HashSize {
-			return nil, fmt.Errorf("invalid hash #%d", i)
-		}
-		hash := zerodisk.Hash(strHash)
+	if format.Count == 0 {
+		return nil, errors.New("invalid count for decoded deduped map")
+	}
+	if format.Count != int64(len(format.Indices)) {
+		return nil, errors.New("invalid index count for decoded deduped map")
+	}
+	if format.Count != int64(len(format.Hashes)) {
+		return nil, errors.New("invalid hash count for decoded deduped map")
+	}
 
-		index, ok := indices[i].(int64)
-		if !ok {
-			return nil, fmt.Errorf("invalid index #%d", i)
-		}
-
-		hashes[index] = hash
+	hashes := make(map[int64]zerodisk.Hash, format.Count)
+	for i := int64(0); i < format.Count; i++ {
+		hashes[format.Indices[i]] = zerodisk.Hash(format.Hashes[i])
 	}
 
 	return hashes, nil
 }
 
-const (
-	hashEncodeKeyCount   = "c"
-	hashEncodeKeyHashes  = "h"
-	hashEncodeKeyIndices = "i"
-)
+type dedupedMapEncodeFormat struct {
+	Count   int64    `bencode:"c"`
+	Indices []int64  `bencode:"i"`
+	Hashes  [][]byte `bencode:"h"`
+}
