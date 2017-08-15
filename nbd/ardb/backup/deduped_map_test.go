@@ -83,7 +83,7 @@ func TestDedupedMapSerialization(t *testing.T) {
 	var buf bytes.Buffer
 
 	// serialize map
-	err := dm.Serialize(&privKey, &buf)
+	err := dm.Serialize(&privKey, LZ4Compression, &buf)
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -93,7 +93,7 @@ func TestDedupedMapSerialization(t *testing.T) {
 		hashCount, ((zerodisk.HashSize + 4) * hashCount), len(buf.Bytes()))
 
 	// Deserialize map again
-	dm, err = DeserializeDedupedMap(&privKey, &buf)
+	dm, err = DeserializeDedupedMap(&privKey, LZ4Compression, &buf)
 	if !assert.NoError(t, err) {
 		return
 	}

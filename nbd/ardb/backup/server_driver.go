@@ -27,25 +27,61 @@ type ServerDriver interface {
 	Close() error
 }
 
-// FTPDriver ceates a driver which allows you
-// to read/write deduped blocks/map from/to a FTP server.
-func FTPDriver(address, username, password, root string) (ServerDriver, error) {
-	config := goftp.Config{
-		User:               username,
-		Password:           password,
-		ConnectionsPerHost: 10,
-		Timeout:            10 * time.Second,
-		Logger:             &ftpLogger{address},
+// FTPServerConfig is used to configure and create an FTP Driver.
+type FTPServerConfig struct {
+	// Address of the FTP Server
+	Address string
+
+	// Optional: username of Authorized account
+	//           for the given FTP server
+	Username string
+	// Optional: password of Authorized account
+	//           for the given FTP server
+	Password string
+
+	// Optional: Root directory to store backups on.
+	//           Only if the default FTP dir is not desired.
+	RootDir string
+}
+
+// Validate the FTP Server Config.
+// TODO: validate more in depth.
+func (cfg *FTPServerConfig) Validate() error {
+	if cfg == nil {
+		return nil
 	}
 
-	client, err := goftp.DialConfig(config, address)
+	if cfg.Password != "" && cfg.Username == "" {
+		return errors.New("password given, while username is missing")
+	}
+
+	return nil
+}
+
+// FTPDriver ceates a driver which allows you
+// to read/write deduped blocks/map from/to a FTP server.
+func FTPDriver(cfg FTPServerConfig) (ServerDriver, error) {
+	err := cfg.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	config := goftp.Config{
+		User:               cfg.Username,
+		Password:           cfg.Password,
+		ConnectionsPerHost: 10,
+		Timeout:            10 * time.Second,
+		Logger:             &ftpLogger{cfg.Address},
+	}
+
+	client, err := goftp.DialConfig(config, cfg.Address)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ftpDriver{
 		client:    client,
-		root:      root,
+		root:      cfg.RootDir,
 		knownDirs: newDirCache(),
 	}, nil
 }
