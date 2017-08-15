@@ -26,7 +26,7 @@ func DeserializeDedupedMap(key *CryptoKey, src io.Reader) (*DedupedMap, error) {
 	if err != nil {
 		return nil, fmt.Errorf("couldn't (AES256_GCM) decrypt compressed deduped map: %v", err)
 	}
-	err = Decompress(bufA, bufB)
+	err = LZ4Decompressor().Decompress(bufA, bufB)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't (LZ4) decompress deduped map: %v", err)
 	}
@@ -69,7 +69,7 @@ func (dm *DedupedMap) Serialize(key *CryptoKey, dst io.Writer) error {
 	}
 
 	imbuffer := bytes.NewBuffer(nil)
-	err = Compress(hmbuffer, imbuffer)
+	err = LZ4Compressor().Compress(hmbuffer, imbuffer)
 	if err != nil {
 		return fmt.Errorf("couldn't (lz4) compress bencoded dedupd map: %v", err)
 	}

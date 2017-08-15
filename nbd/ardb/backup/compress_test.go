@@ -15,6 +15,13 @@ func TestCompressLZ4(t *testing.T) {
 	testCompress(t, compressor, decompressor)
 }
 
+func TestCompressXZ(t *testing.T) {
+	compressor := XZCompressor()
+	decompressor := XZDecompressor()
+
+	testCompress(t, compressor, decompressor)
+}
+
 func testCompress(t *testing.T, compressor Compressor, decompressor Decompressor) {
 	randTestCase := make([]byte, 4*1024)
 	rand.Read(randTestCase)
@@ -107,6 +114,29 @@ func BenchmarkLZ4_32k(b *testing.B) {
 func benchmarkLZ4(b *testing.B, size int64) {
 	compressor := LZ4Compressor()
 	decompressor := LZ4Decompressor()
+
+	benchmarkCompressor(b, size, compressor, decompressor)
+}
+
+func BenchmarkXZ_4k(b *testing.B) {
+	benchmarkXZ(b, 4*1024)
+}
+
+func BenchmarkXZ_8k(b *testing.B) {
+	benchmarkXZ(b, 8*1024)
+}
+
+func BenchmarkXZ_16k(b *testing.B) {
+	benchmarkXZ(b, 16*1024)
+}
+
+func BenchmarkXZ_32k(b *testing.B) {
+	benchmarkXZ(b, 32*1024)
+}
+
+func benchmarkXZ(b *testing.B, size int64) {
+	compressor := XZCompressor()
+	decompressor := XZDecompressor()
 
 	benchmarkCompressor(b, size, compressor, decompressor)
 }

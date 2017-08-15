@@ -4,15 +4,8 @@ import (
 	"io"
 
 	"github.com/pierrec/lz4"
+	"github.com/ulikunitz/xz"
 )
-
-func Compress(src io.Reader, dst io.Writer) error {
-	return LZ4Compressor().Compress(src, dst)
-}
-
-func Decompress(src io.Reader, dst io.Writer) error {
-	return LZ4Decompressor().Decompress(src, dst)
-}
 
 func LZ4Compressor() Compressor {
 	return lz4Compressor{}
@@ -20,6 +13,14 @@ func LZ4Compressor() Compressor {
 
 func LZ4Decompressor() Decompressor {
 	return lz4Decompressor{}
+}
+
+func XZCompressor() Compressor {
+	return xzCompressor{}
+}
+
+func XZDecompressor() Decompressor {
+	return xzDecompressor{}
 }
 
 type Compressor interface {
@@ -38,6 +39,7 @@ func (c lz4Compressor) Compress(src io.Reader, dst io.Writer) error {
 
 	_, err := w.ReadFrom(src)
 	if err != nil {
+		w.Close()
 		return err
 	}
 	return w.Close()
@@ -50,5 +52,34 @@ func (d lz4Decompressor) Decompress(src io.Reader, dst io.Writer) error {
 	r.Header.BlockChecksum = true
 
 	_, err := r.WriteTo(dst)
+	return err
+}
+
+type xzCompressor struct{}
+
+func (c xzCompressor) Compress(src io.Reader, dst io.Writer) error {
+	w, err := xz.NewWriter(dst)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(w, src)
+	if err != nil {
+		w.Close()
+		return err
+	}
+
+	return w.Close()
+}
+
+type xzDecompressor struct{}
+
+func (d xzDecompressor) Decompress(src io.Reader, dst io.Writer) error {
+	r, err := xz.NewReader(src)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(dst, r)
 	return err
 }
