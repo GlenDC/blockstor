@@ -8,7 +8,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TODO: TestConfigValidation
+func TestConfigValidation(t *testing.T) {
+	assert := assert.New(t)
+
+	for _, validConfig := range validConfigs {
+		assert.NoErrorf(validConfig.Validate(), "%v", validConfig)
+	}
+
+	for _, invalidConfig := range invalidConfigs {
+		assert.Errorf(invalidConfig.Validate(), "%v", invalidConfig)
+	}
+}
 
 func TestInflationBlockFetcher_2_to_8(t *testing.T) {
 	testInflationBlockFetcher(t, 2, 8)

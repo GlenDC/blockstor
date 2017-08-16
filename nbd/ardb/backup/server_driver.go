@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zero-os/0-Disk"
+	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 
 	"github.com/secsy/goftp"
@@ -45,10 +46,16 @@ type FTPServerConfig struct {
 }
 
 // Validate the FTP Server Config.
-// TODO: validate more in depth.
 func (cfg *FTPServerConfig) Validate() error {
 	if cfg == nil {
 		return nil
+	}
+
+	if cfg.Address == "" {
+		return errors.New("no ftp server address given")
+	}
+	if !config.IsIPWithOptionalPort(cfg.Address) {
+		return errors.New("invalid ftp server address given")
 	}
 
 	if cfg.Password != "" && cfg.Username == "" {

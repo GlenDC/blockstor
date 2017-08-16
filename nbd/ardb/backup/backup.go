@@ -12,6 +12,12 @@ import (
 	"github.com/zero-os/0-Disk/nbd/ardb/storage"
 )
 
+const (
+	// DefaultBlockSize is the default block size,
+	// used for the deduped blocks stored as a backup.
+	DefaultBlockSize = 1024 * 128 // 128 KiB
+)
+
 type Config struct {
 	// Required: VdiskID to export from or import into
 	VdiskID string
@@ -47,9 +53,12 @@ func (cfg *Config) Validate() error {
 	}
 
 	// turn this into config.ValidateBlockSize(x)
-	if x := cfg.BlockSize; x < 512 || (x&(x-1)) != 0 {
-		return fmt.Errorf(
-			"blockSize '%d' is not a power of 2 or smaller then 512", cfg.BlockSize)
+	if cfg.BlockSize == 0 {
+		cfg.BlockSize = DefaultBlockSize
+	} else {
+		if !config.ValidateBlockSize(cfg.BlockSize) {
+			return fmt.Errorf("blockSize '%d' is not valid", cfg.BlockSize)
+		}
 	}
 
 	err := cfg.StorageSource.Validate()
