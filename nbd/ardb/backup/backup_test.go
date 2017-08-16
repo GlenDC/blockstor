@@ -12,11 +12,11 @@ func TestConfigValidation(t *testing.T) {
 	assert := assert.New(t)
 
 	for _, validConfig := range validConfigs {
-		assert.NoErrorf(validConfig.Validate(), "%v", validConfig)
+		assert.NoErrorf(validConfig.validate(), "%v", validConfig)
 	}
 
 	for _, invalidConfig := range invalidConfigs {
-		assert.Errorf(invalidConfig.Validate(), "%v", invalidConfig)
+		assert.Errorf(invalidConfig.validate(), "%v", invalidConfig)
 	}
 }
 

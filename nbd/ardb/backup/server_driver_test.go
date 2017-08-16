@@ -56,7 +56,10 @@ func (stub *stubDriver) GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error {
 	stub.bmux.RLock()
 	defer stub.bmux.RUnlock()
 
-	bytes := stub.dedupedBlocks[string(hash)]
+	bytes, ok := stub.dedupedBlocks[string(hash)]
+	if !ok {
+		return ErrDataDidNotExist
+	}
 	n, err := w.Write(bytes)
 	if err != nil {
 		return err
@@ -72,7 +75,10 @@ func (stub *stubDriver) GetDedupedMap(id string, w io.Writer) error {
 	stub.mmux.RLock()
 	defer stub.mmux.RUnlock()
 
-	bytes := stub.dedupedMaps[id]
+	bytes, ok := stub.dedupedMaps[id]
+	if !ok {
+		return ErrDataDidNotExist
+	}
 	n, err := w.Write(bytes)
 	if err != nil {
 		return err

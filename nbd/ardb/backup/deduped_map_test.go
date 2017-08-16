@@ -69,7 +69,7 @@ func TestDedupedMapSerialization(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		dm.SetHash(int64(i), hashes[i])
+		assert.True(t, dm.SetHash(int64(i), hashes[i]))
 	}
 
 	// ensure all hashes were written

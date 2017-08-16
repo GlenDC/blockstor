@@ -15,6 +15,12 @@ import (
 	"github.com/secsy/goftp"
 )
 
+var (
+	// ErrDataDidNotExist is returned from a ServerDriver's Getter
+	// method in case the requested data does not exist on the server.
+	ErrDataDidNotExist = errors.New("requested data did not exist")
+)
+
 // ServerDriver defines the API of a driver,
 // which allows us to read/write from/to a server,
 // the deduped blocks and map which form a backup.
@@ -230,6 +236,16 @@ func (ftp *ftpDriver) lazyStore(path string, r io.Reader) error {
 	}
 
 	return nil // file already exists, nothing to do
+}
+
+// retrieve data from an FTP server.
+// returns ErrDataDidNotExist in case there was no data available on the given path.
+func (ftp *ftpDriver) retrieve(path string, dest io.Writer) error {
+	err := ftp.client.Retrieve(path, dest)
+	if isFTPErrorCode(ftpErrorNoExists, err) {
+		return ErrDataDidNotExist
+	}
+	return err
 }
 
 func hashAsDirAndFile(hash zerodisk.Hash) (string, string, bool) {

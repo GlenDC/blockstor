@@ -63,12 +63,13 @@ func TestStorageBlockFetcher(t *testing.T) {
 	}
 
 	for i := 0; i < blockCount; i++ {
-		block, err := fetcher.FetchBlock()
+		pair, err := fetcher.FetchBlock()
 		if assert.NoError(err) {
 			start := i * int(blockSize)
 			end := start + int(blockSize)
 
-			assert.Equalf(sourceData[start:end], block, "block: %v", i)
+			assert.Equalf(int64(i), pair.Index, "block: %v", i)
+			assert.Equalf(sourceData[start:end], pair.Block, "block: %v", i)
 		}
 	}
 
@@ -85,12 +86,13 @@ func TestStorageBlockFetcher(t *testing.T) {
 	}
 
 	for i := 0; i < maxCount; i++ {
-		block, err := fetcher.FetchBlock()
+		pair, err := fetcher.FetchBlock()
 		if assert.NoError(err) {
 			start := i * int(blockSize)
 			end := start + int(blockSize)
 
-			assert.Equalf(sourceData[start:end], block, "block: %v", i)
+			assert.Equalf(int64(i), pair.Index, "block: %v", i)
+			assert.Equalf(sourceData[start:end], pair.Block, "block: %v", i)
 		}
 	}
 

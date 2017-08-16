@@ -18,6 +18,7 @@ const (
 	DefaultBlockSize = 1024 * 128 // 128 KiB
 )
 
+// Config used to export/import a backup.
 type Config struct {
 	// Required: VdiskID to export from or import into
 	VdiskID string
@@ -44,7 +45,9 @@ type Config struct {
 	CryptoKey CryptoKey
 }
 
-func (cfg *Config) Validate() error {
+// validate the export/import config,
+// and fill-in all the missing optional data.
+func (cfg *Config) validate() error {
 	if cfg.VdiskID == "" {
 		return errNilVdiskID
 	}
@@ -83,20 +86,27 @@ func (cfg *Config) Validate() error {
 	return nil
 }
 
+// storageConfig returned when creating a block storage,
+// ready to export to/import from a backup.
 type storageConfig struct {
 	Indices      []int64
 	NBD          config.NBDStorageConfig
 	BlockStorage storage.BlockStorageConfig
 }
 
+// blockFetcher is a generic interface which defines the API
+// to fetch a block (and its index) until we io.EOF is reached.
 type blockFetcher interface {
 	// FetchBlock fetches a new block (and its index) every call,
 	// io.EOF is returned in case no blocks are available any longer.
 	FetchBlock() (*blockIndexPair, error)
 }
 
+// blockIndexPair is the result type for the `blockFetcher` API.
 type blockIndexPair struct {
+	// Block which has been fetched.
 	Block []byte
+	// Index of the Block which has been fetched.
 	Index int64
 }
 
@@ -274,7 +284,8 @@ func isNilBlock(block []byte) bool {
 	return true
 }
 
-func createBlockStorage(vdiskID string, sourceConfig config.SourceConfig) (*storageConfig, error) {
+// Create a block storage ready for importing/exporting to/from a backup.
+func createBlockStorage(vdiskID string, sourceConfig config.SourceConfig, listIndices bool) (*storageConfig, error) {
 	storageConfigCloser, err := config.NewSource(sourceConfig)
 	if err != nil {
 		return nil, err
@@ -291,9 +302,12 @@ func createBlockStorage(vdiskID string, sourceConfig config.SourceConfig) (*stor
 		return nil, err
 	}
 
-	indices, err := storage.ListBlockIndices(vdiskID, vdiskConfig.Type, &nbdStorageConfig.StorageCluster)
-	if err != nil {
-		return nil, err
+	var indices []int64
+	if listIndices {
+		indices, err = storage.ListBlockIndices(vdiskID, vdiskConfig.Type, &nbdStorageConfig.StorageCluster)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	blockStorage := storage.BlockStorageConfig{

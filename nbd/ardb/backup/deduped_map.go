@@ -5,19 +5,50 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 
 	"github.com/zero-os/0-Disk"
 
 	"github.com/zeebo/bencode"
 )
 
+// NewDedupedMap creates a new deduped map,
+// which contains all the metadata stored for a(n) (exported) backup.
+// See `DedupedMap` for more information.
 func NewDedupedMap() *DedupedMap {
 	return &DedupedMap{
 		hashes: make(map[int64]zerodisk.Hash),
 	}
 }
 
+// ExistingOrNewDedupedMap tries to first fetch an existing deduped map from a given server,
+// if it doesn't exist yet, a new one will be created in-memory instead.
+// If it did exist already, it will be decrypted, decompressed and loaded in-memory as a DedupedMap.
+func ExistingOrNewDedupedMap(id string, src ServerDriver, key *CryptoKey, ct CompressionType) (*DedupedMap, error) {
+	buf := bytes.NewBuffer(nil)
+	err := src.GetDedupedMap(id, buf)
+
+	if err == ErrDataDidNotExist {
+		// deduped map did not exist yet, return a new one
+		return NewDedupedMap(), nil
+	}
+	if err != nil {
+		// deduped map did exist,
+		// but an unknown error was triggered while fetching it
+		return nil, err
+	}
+
+	// try to load the existing deduped map in memory
+	return DeserializeDedupedMap(key, ct, buf)
+}
+
+// DeserializeDedupedMap allows you to deserialize a deduped map from a given reader.
+// It is expected that all the data in the reader is available,
+// and is compressed and (only than) encrypted.
+// This function will attempt to decrypt and decompress the read data,
+// using the given private (AES) key and compression type.
+// The given compression type and private key has to match the information,
+// used to serialize this DedupedMap in the first place.
+// See `DedupedMap` for more information.
 func DeserializeDedupedMap(key *CryptoKey, ct CompressionType, src io.Reader) (*DedupedMap, error) {
 	decompressor, err := NewDecompressor(ct)
 	if err != nil {
@@ -44,33 +75,43 @@ func DeserializeDedupedMap(key *CryptoKey, ct CompressionType, src io.Reader) (*
 	return &DedupedMap{hashes: hashes}, nil
 }
 
+// DedupedMap contains all hashes for a vdisk's backup,
+// where each hash is mapped to its (export) block index.
+// NOTE: DedupedMap is not thread-safe,
+//       and should only be used on one goroutine at a time.
 type DedupedMap struct {
 	hashes map[int64]zerodisk.Hash
-	mux    sync.RWMutex
 }
 
-func (dm *DedupedMap) SetHash(index int64, hash zerodisk.Hash) {
-	dm.mux.Lock()
-	defer dm.mux.Unlock()
+// SetHash sets the given hash, mapped to the given (export block) index.
+// If there is already a hash mapped to the given (export block) index,
+// and the hash equals the given hash, the given hash won't be used and `false` wil be returned.
+// Otherwise the given hash is mapped to the given index and `true`` will be returned.
+func (dm *DedupedMap) SetHash(index int64, hash zerodisk.Hash) bool {
+	if h, found := dm.hashes[index]; found && h.Equals(hash) {
+		return false
+	}
+
 	dm.hashes[index] = hash
+	return true
 }
 
+// GetHash returns the hash which is mapped to the given (export block) index.
+// `false` is returned in case no hash is mapped to the given (export block) index.
 func (dm *DedupedMap) GetHash(index int64) (zerodisk.Hash, bool) {
-	dm.mux.RLock()
-	defer dm.mux.RUnlock()
-
 	hash, found := dm.hashes[index]
 	return hash, found
 }
 
+// Serialize allows you to write all data of this map in a binary encoded manner,
+// to the given writer. The encoded data will be compressed and encrypted before being
+// writen to the given writer.
+// You can re-load this map in memory using the `DeserializeDedupedMap` function.
 func (dm *DedupedMap) Serialize(key *CryptoKey, ct CompressionType, dst io.Writer) error {
 	compressor, err := NewCompressor(ct)
 	if err != nil {
 		return err
 	}
-
-	dm.mux.RLock()
-	defer dm.mux.RUnlock()
 
 	hmbuffer := bytes.NewBuffer(nil)
 	err = serializeHashes(dm.hashes, hmbuffer)
@@ -92,6 +133,8 @@ func (dm *DedupedMap) Serialize(key *CryptoKey, ct CompressionType, dst io.Write
 	return nil
 }
 
+// serializeHashes encapsulates the entire encoding logic
+// for the deduped map serialization.
 func serializeHashes(hashes map[int64]zerodisk.Hash, w io.Writer) error {
 	hashCount := len(hashes)
 	if hashCount == 0 {
@@ -114,6 +157,8 @@ func serializeHashes(hashes map[int64]zerodisk.Hash, w io.Writer) error {
 	return bencode.NewEncoder(w).Encode(format)
 }
 
+// deserializeHashes encapsulates the entire decoding logic
+// for the deduped map serialization.
 func deserializeHashes(r io.Reader) (map[int64]zerodisk.Hash, error) {
 	var format dedupedMapEncodeFormat
 	err := bencode.NewDecoder(r).Decode(&format)
@@ -139,6 +184,9 @@ func deserializeHashes(r io.Reader) (map[int64]zerodisk.Hash, error) {
 	return hashes, nil
 }
 
+// dedupedMapEncodeFormat defines the structure used to
+// encode a deduped map to a binary format.
+// See https://github.com/zeebo/bencode for more information.
 type dedupedMapEncodeFormat struct {
 	Count   int64    `bencode:"c"`
 	Indices []int64  `bencode:"i"`
