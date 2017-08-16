@@ -46,7 +46,7 @@ func TestBackendSigtermHandler(t *testing.T) {
 
 	// test Tlog Storage
 	testBackendSigtermHandler(ctx, t, vdiskID, blockSize, size, func() storage.BlockStorage {
-		storage := newInMemoryStorage(vdiskID, blockSize)
+		storage := storage.NewInMemoryStorage(vdiskID, blockSize)
 		if !assert.NotNil(t, storage) {
 			return nil
 		}

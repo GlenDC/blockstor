@@ -2,10 +2,9 @@ package backup
 
 import (
 	"bytes"
-	"context"
 	"errors"
+	"io"
 
-	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/nbd/ardb/storage"
 
@@ -56,75 +55,43 @@ func export(src storage.BlockStorage, blockIndices []int64, dst ServerDriver, cf
 	return errors.New("TODO")
 }
 
-func fetchStorageBlocks(ctx context.Context, indices []int64, storage storage.BlockStorage, srcSize, dstSize int64, bsize int) (<-chan []byte, <-chan error) {
-	outputCh := make(chan []byte, bsize)
-	errCh := make(chan error, bsize)
-
-	go func() {
-		log.Debug("starting fetch storage block goroutine")
-		defer log.Debug("stopping fetch storage block goroutine")
-		defer close(outputCh)
-		defer close(errCh)
-
-		nilBlock := make([]byte, srcSize)
-
-		previousIndex := indices[0]
-		var targetBlock []byte
-
-		for _, index := range indices {
-			select {
-			case <-ctx.Done():
-				return
-
-			default:
-				block, err := fetchStorageBlock(storage, index, srcSize)
-				if err != nil {
-					errCh <- err
-					block = nilBlock
-				}
-
-				for int64(len(block)) > dstSize {
-					outputCh <- block[:dstSize]
-					block = block[dstSize:]
-				}
-
-				if len(block) == 0 {
-					previousIndex = index
-					continue
-				}
-
-				// TODO:
-				// Finish this off,
-				// make sure to be able to:
-				// + add block to targetBlock in case we still have left over
-				// + make sure sure to be able to pad with zero's,
-				//   in case the current index is not the index right after the previous index
-				if previousIndex-index > 2 {
-				}
-				// ...
-
-				// todo:
-				outputCh <- targetBlock
-			}
-		}
-	}()
-
-	return outputCh, errCh
+func newStorageBlockFetcher(storage storage.BlockStorage, indices []int64, blockSize int64) *storageBlockFetcher {
+	return &storageBlockFetcher{
+		storage:   storage,
+		indices:   indices,
+		index:     0,
+		length:    int64(len(indices)),
+		blockSize: blockSize,
+	}
 }
 
-func fetchStorageBlock(storage storage.BlockStorage, blockIndex, blockSize int64) ([]byte, error) {
-	content, err := storage.GetBlock(blockIndex)
+type storageBlockFetcher struct {
+	storage   storage.BlockStorage
+	indices   []int64
+	index     int64
+	length    int64
+	blockSize int64
+}
+
+func (sbf *storageBlockFetcher) FetchBlock() ([]byte, error) {
+	if sbf.index >= sbf.length {
+		return nil, io.EOF
+	}
+
+	block, err := sbf.storage.GetBlock(sbf.index)
 	if err != nil {
 		return nil, err
 	}
+	sbf.index++
 
-	if int64(len(content)) < blockSize {
-		block := make([]byte, blockSize)
-		copy(block, content)
-		content = block
+	// a storage might return a block not big enough
+	if int64(len(block)) < sbf.blockSize {
+		nb := make([]byte, sbf.blockSize)
+		copy(nb, block)
+		block = nb
 	}
 
-	return content, nil
+	return block, nil
 }
 
 type exportConfig struct {
