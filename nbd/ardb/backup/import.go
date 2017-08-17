@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"sort"
@@ -68,8 +69,8 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	inputCh := make(chan indexHashPair, cfg.JobCount*2)   // gets closed by fetcher goroutine
-	outputCh := make(chan blockIndexPair, cfg.JobCount*2) // gets closed when all blocks have been fetched and processed
+	inputCh := make(chan importInput, cfg.JobCount*2)   // gets closed by fetcher goroutine
+	outputCh := make(chan importOutput, cfg.JobCount*2) // gets closed when all blocks have been fetched and processed
 
 	errCh := make(chan error)
 	defer close(errCh)
@@ -119,16 +120,9 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 
 			log.Debugf("starting import worker #%d", id)
 
-			var obf onceBlockFetcher
-			// TODO: need to take into account that srcBS can be smaller than dstBS
-			//       and thus the onceBlockFetcher might not really be useful in that case...
-			dbf := newDeflationBlockFetcher(&obf, cfg.SrcBlockSize, cfg.DstBlockSize)
-
-			var inputPair indexHashPair
-			var outputPair *blockIndexPair
+			var input importInput
 			var block []byte
 			var open bool
-			var err error
 
 			defer func() {
 				if err != nil {
@@ -143,44 +137,28 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 				case <-ctx.Done():
 					return
 
-				case inputPair, open = <-inputCh:
+				case input, open = <-inputCh:
 					if !open {
 						return
 					}
 
-					block, err = pipeline.ReadBlock(inputPair.Hash)
+					// read, decrypt and decompress the input block hash
+					block, err = pipeline.ReadBlock(input.BlockHash)
 					if err != nil {
 						sendErr(err)
 						return
 					}
 
-					obf.pair = &blockIndexPair{
-						Block: block,
-						Index: inputPair.Index,
+					// send block to storage goroutine (its final destination)
+					output := importOutput{
+						BlockData:     block,
+						BlockIndex:    input.BlockIndex,
+						SequenceIndex: input.SequenceIndex,
 					}
-
-				fetchLoop:
-					for {
-						select {
-						case <-ctx.Done():
-							return
-
-						default:
-							outputPair, err = dbf.FetchBlock()
-							if err != nil {
-								if err != io.EOF {
-									sendErr(err)
-									return
-								}
-								err = nil
-								break fetchLoop // we're done
-							}
-							select {
-							case <-ctx.Done():
-								return
-							case outputCh <- *outputPair:
-							}
-						}
+					select {
+					case <-ctx.Done():
+						return
+					case outputCh <- output:
 					}
 				}
 			}
@@ -203,22 +181,70 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 			log.Debug("stopping importer's output goroutine")
 		}()
 
+		sbf := newStreamBlockFetcher()
+		obf := sizedBlockFetcher(sbf, cfg.SrcBlockSize, cfg.DstBlockSize)
+
 		var open bool
-		var pair blockIndexPair
+		var output importOutput
+		var pair *blockIndexPair
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case pair, open = <-outputCh:
+			case output, open = <-outputCh:
 				if !open {
+					if len(sbf.sequences) > 0 {
+						err = fmt.Errorf(
+							"output goroutine quits with %d invalid out-of-order blocks",
+							len(sbf.sequences))
+						sendErr(err)
+					}
 					return
 				}
 
-				err = dst.SetBlock(pair.Index, pair.Block)
-				if err != nil {
-					sendErr(err)
-					return
+				if output.SequenceIndex < sbf.scursor {
+					// NOTE: this should never happen,
+					//       as it indicates a bug in the code
+					sendErr(fmt.Errorf(
+						"unexpected sequence index returned, received %d, which is lower then %d",
+						output.SequenceIndex, sbf.scursor))
+				}
+
+				// cache the current received output
+				sbf.sequences[output.SequenceIndex] = blockIndexPair{
+					Block: output.BlockData,
+					Index: output.BlockIndex,
+				}
+
+				if output.SequenceIndex > sbf.scursor {
+					// we received an out-of-order index,
+					// so wait for the next one
+					continue
+				}
+
+				// sequenceIndex == scursor
+				// continue storing as much blocks as possible,
+				// with the current cached output
+				for {
+					pair, err = obf.FetchBlock()
+					if err != nil {
+						if err == io.EOF {
+							err = nil
+							break // we have nothing more to send
+						}
+						// unknown error, quit!
+						sendErr(err)
+						return
+					}
+
+					// store block,
+					// which has been potentially sliced to fit the storage's block size
+					err = dst.SetBlock(pair.Index, pair.Block)
+					if err != nil {
+						sendErr(err)
+						return
+					}
 				}
 			}
 		}
@@ -242,6 +268,8 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 		hf := newHashFetcher(dedupedMap)
 		var pair *indexHashPair
 
+		var sequence int64
+
 		// keep fetching hashes,
 		// until we received an error,
 		// where the error hopefully is just io.EOF
@@ -262,10 +290,19 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 					return
 				}
 
+				// attach a sequence to each block-index pair,
+				// as the pipelines might process them out of order.
+				input := importInput{
+					BlockHash:     pair.Hash,
+					BlockIndex:    pair.Index,
+					SequenceIndex: sequence,
+				}
+				sequence++
+
 				select {
 				case <-ctx.Done():
 					return
-				case inputCh <- *pair:
+				case inputCh <- input:
 				}
 			}
 		}
@@ -383,3 +420,41 @@ type importConfig struct {
 func (ihps indexHashPairSlice) Len() int           { return len(ihps) }
 func (ihps indexHashPairSlice) Less(i, j int) bool { return ihps[i].Index < ihps[j].Index }
 func (ihps indexHashPairSlice) Swap(i, j int)      { ihps[i], ihps[j] = ihps[j], ihps[i] }
+
+type importInput struct {
+	BlockHash     zerodisk.Hash
+	BlockIndex    int64
+	SequenceIndex int64
+}
+
+type importOutput struct {
+	BlockData     []byte // = data mapped to importInput.BlockHashHash
+	BlockIndex    int64  // = importInput.BlockIndex
+	SequenceIndex int64  // = importInput.SequenceIndex
+}
+
+func newStreamBlockFetcher() *streamBlockFetcher {
+	return &streamBlockFetcher{
+		sequences: make(map[int64]blockIndexPair),
+	}
+}
+
+// streamBlockFetcher is a specialized blockFetcher,
+// which is only supposed to be used for the import functionality,
+// as it uses its sequence Index as the s(equence)cursor
+type streamBlockFetcher struct {
+	sequences map[int64]blockIndexPair
+	scursor   int64
+}
+
+// FetchBlock implements blockFetcher.FetchBlock
+func (sbf *streamBlockFetcher) FetchBlock() (*blockIndexPair, error) {
+	pair, ok := sbf.sequences[sbf.scursor]
+	if !ok {
+		return nil, io.EOF
+	}
+
+	delete(sbf.sequences, sbf.scursor)
+	sbf.scursor++
+	return &pair, nil
+}
