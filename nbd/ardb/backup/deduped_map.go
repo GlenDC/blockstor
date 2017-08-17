@@ -20,6 +20,20 @@ func NewDedupedMap() *DedupedMap {
 	}
 }
 
+// LoadDedupedMap a deduped map from a given (backup) server.
+func LoadDedupedMap(id string, src ServerDriver, key *CryptoKey, ct CompressionType) (*DedupedMap, error) {
+	buf := bytes.NewBuffer(nil)
+	err := src.GetDedupedMap(id, buf)
+	if err != nil {
+		// deduped map did exist,
+		// but an unknown error was triggered while fetching it
+		return nil, err
+	}
+
+	// try to load the existing deduped map in memory
+	return DeserializeDedupedMap(key, ct, buf)
+}
+
 // ExistingOrNewDedupedMap tries to first fetch an existing deduped map from a given server,
 // if it doesn't exist yet, a new one will be created in-memory instead.
 // If it did exist already, it will be decrypted, decompressed and loaded in-memory as a DedupedMap.

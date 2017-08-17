@@ -13,7 +13,7 @@ import (
 	"github.com/zero-os/0-Disk"
 )
 
-// Export a block storage to an FTP Server,
+// Export a block storage to aa FTP Server,
 // in a secure and space efficient manner,
 // in order to provide a backup (snapshot) for later usage.
 func Export(ctx context.Context, cfg Config) error {
@@ -54,10 +54,10 @@ func Export(ctx context.Context, cfg Config) error {
 		SnapshotID:      cfg.SnapshotID,
 	}
 
-	return export(ctx, blockStorage, storageConfig.Indices, ftpDriver, exportConfig)
+	return exportBS(ctx, blockStorage, storageConfig.Indices, ftpDriver, exportConfig)
 }
 
-func export(ctx context.Context, src storage.BlockStorage, blockIndices []int64, dst ServerDriver, cfg exportConfig) error {
+func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int64, dst ServerDriver, cfg exportConfig) error {
 	// load the deduped map, or create a new one if it doesn't exist yet
 	dedupedMap, err := ExistingOrNewDedupedMap(
 		cfg.SnapshotID, dst, &cfg.CryptoKey, cfg.CompressionType)
@@ -70,12 +70,21 @@ func export(ctx context.Context, src storage.BlockStorage, blockIndices []int64,
 	defer cancel()
 
 	inputCh := make(chan blockHashPair, cfg.JobCount*2) // gets closed by fetcher goroutine
-	errCh := make(chan error)                           // gets closed by error handling goroutine
+
+	errCh := make(chan error)
+	defer close(errCh)
+
+	sendErr := func(err error) {
+		log.Errorf("an error occured while exporting: %v", err)
+		select {
+		case errCh <- err:
+		default:
+		}
+	}
 
 	var exportErr error
 	// err ch used to
 	go func() {
-		defer close(errCh)
 		select {
 		case <-ctx.Done():
 		case exportErr = <-errCh:
@@ -85,10 +94,9 @@ func export(ctx context.Context, src storage.BlockStorage, blockIndices []int64,
 
 	var wg sync.WaitGroup
 
-	// launch fetcher, so it can start fetcing blocks
-	wg.Add(1)
+	// launch fetcher, so it can start fetching blocks
 	go func() {
-		defer wg.Done()
+		defer close(inputCh)
 
 		log.Debug("starting export's block fetcher")
 
@@ -121,9 +129,10 @@ func export(ctx context.Context, src storage.BlockStorage, blockIndices []int64,
 				// fetch the next available block
 				pair, err = bf.FetchBlock()
 				if err != nil {
-					if err != io.EOF {
-						errCh <- err
+					if err == io.EOF {
 						err = nil
+					} else {
+						sendErr(err)
 					}
 					return
 				}
@@ -136,9 +145,14 @@ func export(ctx context.Context, src storage.BlockStorage, blockIndices []int64,
 					// as it already existed
 				}
 
-				inputCh <- blockHashPair{
+				pair := blockHashPair{
 					Block: pair.Block,
 					Hash:  hash,
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case inputCh <- pair:
 				}
 			}
 		}
@@ -177,15 +191,24 @@ func export(ctx context.Context, src storage.BlockStorage, blockIndices []int64,
 				log.Debugf("stopping export worker #%d", id)
 			}()
 
+			var pair blockHashPair
+			var open bool
+
 			for {
 				select {
 				case <-ctx.Done():
 					return
 
-				case pair := <-inputCh:
+				case pair, open = <-inputCh:
+					if !open {
+						return
+					}
+
 					err = pipeline.WriteBlock(pair.Hash, pair.Block)
-					errCh <- err
-					return
+					if err != nil {
+						sendErr(err)
+						return
+					}
 				}
 			}
 		}(i)

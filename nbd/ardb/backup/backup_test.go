@@ -5,6 +5,8 @@ import (
 	"io"
 	"testing"
 
+	"github.com/zero-os/0-Disk"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -170,6 +172,35 @@ func testDeflationBlockFetcher(t *testing.T, srcBS, dstBS int64) {
 
 	// now stub should be EOF
 	_, err = fetcher.FetchBlock()
+	assert.Equal(io.EOF, err)
+}
+
+func TestOnceBlockFetcher(t *testing.T) {
+	assert := assert.New(t)
+
+	var once onceBlockFetcher
+
+	// by default once should return io.EOF,
+	// as the nil value of once contains a nil `blockIndexPair`.
+	_, err := once.FetchBlock()
+	assert.Equal(io.EOF, err)
+
+	// when setting a pair to the onceBlockFetcher,
+	// it will return that pair once and only once.
+	pair := blockIndexPair{
+		Index: 42,
+		Block: zerodisk.Hash(make([]byte, 8)),
+	}
+	once.pair = &pair
+
+	fetchedPair, err := once.FetchBlock()
+	if assert.NoError(err) && assert.NotNil(fetchedPair) {
+		assert.Equal(pair.Index, fetchedPair.Index)
+		assert.Equal(pair.Block, fetchedPair.Block)
+	}
+
+	// block is already fetched
+	_, err = once.FetchBlock()
 	assert.Equal(io.EOF, err)
 }
 

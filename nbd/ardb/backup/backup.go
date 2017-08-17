@@ -35,6 +35,7 @@ type Config struct {
 
 	// Optional: Amount of jobs (goroutines) to run simultaneously
 	//           (to import/export in parallel)
+	//           By default it equals the amount of CPUs available.
 	JobCount int
 
 	// Type of Compression to use for compressing/decompressing.
@@ -75,7 +76,7 @@ func (cfg *Config) validate() error {
 	}
 
 	if cfg.JobCount <= 0 {
-		cfg.JobCount = runtime.NumCPU() * 2
+		cfg.JobCount = runtime.NumCPU()
 	}
 
 	err = cfg.CompressionType.Validate()
@@ -271,6 +272,23 @@ func (dbf *deflationBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 		dbf.cb = pair.Block
 		dbf.cbi = pair.Index * dbf.ratio
 	}
+}
+
+// onceBlockFetcher is a fetcher which returns a pair just once,
+// after which it will return io.EOF, until a new pair is given.
+type onceBlockFetcher struct {
+	pair *blockIndexPair
+}
+
+// FetchBlock implements blockFetcher.FetchBlock
+func (obf *onceBlockFetcher) FetchBlock() (*blockIndexPair, error) {
+	if obf.pair == nil {
+		return nil, io.EOF
+	}
+
+	pair := obf.pair
+	obf.pair = nil
+	return pair, nil
 }
 
 // isNilBlock returns true if the given block contains only 0.
