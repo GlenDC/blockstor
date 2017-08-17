@@ -226,6 +226,7 @@ type storageBlockFetcher struct {
 	blockSize int64
 }
 
+// FetchBlock implements blockFetcher.FetchBlock
 func (sbf *storageBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 	if sbf.index >= sbf.length {
 		return nil, io.EOF
