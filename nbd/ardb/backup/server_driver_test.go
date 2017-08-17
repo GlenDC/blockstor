@@ -4,10 +4,85 @@ import (
 	"errors"
 	"io"
 	"io/ioutil"
+	"strings"
 	"sync"
+	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/zero-os/0-Disk"
 )
+
+func TestMinimalFTPServerConfigToString(t *testing.T) {
+	assert := assert.New(t)
+
+	validCases := []struct {
+		Input, Output string
+	}{
+		{"foo", "ftp://foo:22"},
+		{"foo/bar/baz", "ftp://foo:22/bar/baz"},
+		{"foo:22", "ftp://foo:22"},
+	}
+
+	for _, validCase := range validCases {
+		var cfg FTPServerConfig
+		if !assert.NoError(cfg.Set(validCase.Input)) {
+			continue
+		}
+		assert.Equal(validCase.Output, cfg.String())
+	}
+}
+
+func TestFTPServerConfigToString(t *testing.T) {
+	assert := assert.New(t)
+
+	validCases := []struct {
+		Config   FTPServerConfig
+		Expected string
+	}{
+		{FTPServerConfig{Address: "localhost:2000"}, "ftp://localhost:2000"},
+		{FTPServerConfig{Address: "localhost:2000/bar/foo"}, "ftp://localhost:2000/bar/foo"},
+		{FTPServerConfig{Address: "localhost:2000/bar"}, "ftp://localhost:2000/bar"},
+		{FTPServerConfig{Address: "localhost:2000", Username: "foo"}, "ftp://foo@localhost:2000"},
+		{FTPServerConfig{Address: "localhost:2000", Username: "foo", Password: "boo"}, "ftp://foo:boo@localhost:2000"},
+		{FTPServerConfig{Address: "localhost:2000/bar", Username: "foo", Password: "boo"}, "ftp://foo:boo@localhost:2000/bar"},
+	}
+
+	for _, validCase := range validCases {
+		output := validCase.Config.String()
+		assert.Equal(validCase.Expected, output)
+	}
+}
+
+func TestFTPServerConfigStringCommute(t *testing.T) {
+	assert := assert.New(t)
+
+	validCases := []string{
+		"localhost:2000",
+		"localhost:2000",
+		"localhost:2000/foo",
+		"ftp://localhost:2000",
+		"ftp://localhost:2000/foo",
+		"username@localhost:2000",
+		"username@localhost:200/foo0",
+		"ftp://username@localhost:2000/bar/foo",
+		"user:pass@localhost:3000",
+		"user:pass@localhost:3000/bar",
+		"ftp://user:pass@localhost:3000/bar",
+	}
+
+	for _, validCase := range validCases {
+		var cfg FTPServerConfig
+		if !assert.NoError(cfg.Set(validCase)) {
+			continue
+		}
+
+		expected := validCase
+		if !strings.HasPrefix(expected, "ftp://") {
+			expected = "ftp://" + expected
+		}
+		assert.Equal(expected, cfg.String())
+	}
+}
 
 // newStubDriver creates an in-memory Server Driver,
 // which is to be used for testing purposes only.

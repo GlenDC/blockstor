@@ -22,7 +22,7 @@ var validConfigs = []Config{
 	Config{
 		VdiskID: "foo",
 		FTPServer: FTPServerConfig{
-			Address: "localhost",
+			Address: "localhost:22",
 		},
 		CryptoKey: CryptoKey{4, 2},
 	},

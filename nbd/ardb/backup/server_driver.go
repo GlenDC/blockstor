@@ -2,16 +2,18 @@ package backup
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/zero-os/0-Disk"
-	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 
+	valid "github.com/asaskevich/govalidator"
 	"github.com/secsy/goftp"
 )
 
@@ -45,11 +47,56 @@ type FTPServerConfig struct {
 	// Optional: password of Authorized account
 	//           for the given FTP server
 	Password string
-
-	// Optional: Root directory to store backups on.
-	//           Only if the default FTP dir is not desired.
-	RootDir string
 }
+
+// String implements Stringer.String
+func (cfg *FTPServerConfig) String() string {
+	if cfg.Validate() != nil {
+		return "" // invalid config
+	}
+
+	if cfg.Username != "" {
+		url := "ftp://" + cfg.Username
+		if cfg.Password != "" {
+			url += ":" + cfg.Password
+		}
+		return url + "@" + cfg.Address
+	}
+
+	return "ftp://" + cfg.Address
+}
+
+// Set implements flag.Value.Set
+func (cfg *FTPServerConfig) Set(str string) error {
+	parts := ftpURLRegexp.FindStringSubmatch(str)
+	if len(parts) != 6 {
+		return fmt.Errorf("'%s' is not a valid FTP URL", str)
+	}
+
+	// set credentials
+	cfg.Username = parts[1]
+	cfg.Password = parts[2]
+
+	// set address
+	cfg.Address = parts[3] + parts[4]
+	if parts[4] == "" {
+		cfg.Address += ":22"
+	}
+	cfg.Address += parts[5]
+
+	// all info was set correctly
+	return nil
+}
+
+// Type implements PFlag.Type
+func (cfg *FTPServerConfig) Type() string {
+	return "FTPServerConfig"
+}
+
+// ftpURLRegexp is a simplistic ftp URL regexp,
+// to be able to split an FTP url into credentials and the hostname.
+// It doesn't contain much validation, as that isn't the point of this regexp.
+var ftpURLRegexp = regexp.MustCompile(`^(?:ftp://)?(?:([^:@]+)(?::([^:@]+))?@)?(?:([^@/:]+)(:[0-9]+)?(/.*)?)$`)
 
 // Validate the FTP Server Config.
 func (cfg *FTPServerConfig) Validate() error {
@@ -60,7 +107,7 @@ func (cfg *FTPServerConfig) Validate() error {
 	if cfg.Address == "" {
 		return errors.New("no ftp server address given")
 	}
-	if !config.IsIPWithOptionalPort(cfg.Address) {
+	if !valid.IsURL(cfg.Address) {
 		return errors.New("invalid ftp server address given")
 	}
 
@@ -94,14 +141,12 @@ func FTPDriver(cfg FTPServerConfig) (ServerDriver, error) {
 
 	return &ftpDriver{
 		client:    client,
-		root:      cfg.RootDir,
 		knownDirs: newDirCache(),
 	}, nil
 }
 
 type ftpDriver struct {
 	client    *goftp.Client
-	root      string
 	knownDirs *dirCache
 }
 
@@ -156,8 +201,6 @@ func (ftp *ftpDriver) Close() error {
 // or in case a file at some point already exist, but is not a directory.
 // The returned string is how the client should refer to the created directory.
 func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
-	dir = path.Join(ftp.root, dir)
-
 	// cheap early check
 	// if we already known about the given dir,
 	// than we know it exists (or at least we assume it does)

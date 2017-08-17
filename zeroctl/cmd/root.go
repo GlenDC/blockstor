@@ -31,6 +31,8 @@ func init() {
 		CopyCmd,
 		DeleteCmd,
 		RestoreCmd,
+		ExportCmd,
+		ImportCmd,
 		ListCmd,
 	)
 
