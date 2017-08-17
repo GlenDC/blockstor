@@ -90,19 +90,51 @@ func generateInflationDataPair(srcSize, dstSize, dstOffset int64) ([]byte, []byt
 	return input, output
 }
 
-func TestDeflationBlockFetcher_8_to_2(t *testing.T) {
-	testDeflationBlockFetcher(t, 8, 2)
+func TestDeflationBlockFetcher_8_to_2_with_i1_and_o0(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 2, 1, 0)
 }
 
-func TestDeflationBlockFetcher_8_to_4(t *testing.T) {
-	testDeflationBlockFetcher(t, 8, 4)
+func TestDeflationBlockFetcher_8_to_2_with_i2_and_o0(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 2, 2, 0)
 }
 
-func TestDeflationBlockFetcher_16_to_2(t *testing.T) {
-	testDeflationBlockFetcher(t, 16, 2)
+func TestDeflationBlockFetcher_8_to_2_with_i1_and_o1(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 2, 1, 1)
 }
 
-func testDeflationBlockFetcher(t *testing.T, srcBS, dstBS int64) {
+func TestDeflationBlockFetcher_8_to_2_with_i2_and_o1(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 2, 2, 1)
+}
+
+func TestDeflationBlockFetcher_8_to_4_with_i1_and_o0(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 4, 1, 0)
+}
+
+func TestDeflationBlockFetcher_8_to_4_with_i2_and_o1(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 4, 2, 1)
+}
+
+func TestDeflationBlockFetcher_8_to_4_with_i1_and_o1(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 4, 1, 1)
+}
+
+func TestDeflationBlockFetcher_8_to_4_with_i1_and_o4(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 4, 1, 4)
+}
+
+func TestDeflationBlockFetcher_8_to_4_with_i1_and_o2(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 4, 1, 2)
+}
+
+func TestDeflationBlockFetcher_8_to_4_with_i2_and_o0(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 4, 2, 0)
+}
+
+func TestDeflationBlockFetcher_16_to_2_with_i1_and_o0(t *testing.T) {
+	testDeflationBlockFetcher(t, 16, 2, 1, 0)
+}
+
+func testDeflationBlockFetcher(t *testing.T, srcBS, dstBS, interval, offset int64) {
 	assert := assert.New(t)
 	if !assert.True(srcBS > dstBS) {
 		return
@@ -121,13 +153,13 @@ func testDeflationBlockFetcher(t *testing.T, srcBS, dstBS int64) {
 	for i := 0; i < 2; i++ {
 		srcData := make([]byte, srcBS)
 		rand.Read(srcData)
-		stub.AddBlock(int64(i), srcData)
+		stub.AddBlock((int64(i)+offset)*interval, srcData)
 
 		ratio := srcBS / dstBS
 		for u := int64(0); u < ratio; u++ {
 			// getting data (block+index) should be correct
 			pair, err := fetcher.FetchBlock()
-			assert.Equalf(int64(i)*ratio+u, pair.Index,
+			assert.Equalf((int64(i)+offset)*interval*ratio+u, pair.Index,
 				"i = %d, u = %d", i, u)
 			if assert.NoError(err) {
 				start := u * dstBS
@@ -232,4 +264,108 @@ func (sbf *stubBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 		Block: block,
 		Index: index,
 	}, nil
+}
+
+func TestDeflationInflationCommute_2_4(t *testing.T) {
+	testDeflationInflationCommute(t, 2, 4)
+}
+
+func TestDeflationInflationCommute_2_8(t *testing.T) {
+	testDeflationInflationCommute(t, 2, 8)
+}
+
+func TestDeflationInflationCommute_2_64(t *testing.T) {
+	testDeflationInflationCommute(t, 2, 64)
+}
+
+func testDeflationInflationCommute(t *testing.T, smallSize, bigSize int64) {
+	assert := assert.New(t)
+
+	sourceData := make([]byte, bigSize)
+	rand.Read(sourceData)
+
+	src := &onceBlockFetcher{&blockIndexPair{Block: sourceData}}
+	bf := newInflationBlockFetcher(
+		newDeflationBlockFetcher(src, bigSize, smallSize),
+		smallSize, bigSize)
+
+	pair, err := bf.FetchBlock()
+	if assert.NoError(err) {
+		assert.Equal(int64(0), pair.Index)
+		assert.Equal(sourceData, pair.Block)
+	}
+
+	pair, err = bf.FetchBlock()
+	if assert.Error(err) {
+		assert.Nil(pair)
+	}
+}
+
+func TestInflationDeflationCommute_4_2(t *testing.T) {
+	testInflationDeflationCommute(t, 4, 2)
+}
+
+func TestInflationDeflationCommute_8_2(t *testing.T) {
+	testInflationDeflationCommute(t, 8, 2)
+}
+
+func TestInflationDeflationCommute_16_4(t *testing.T) {
+	testInflationDeflationCommute(t, 16, 4)
+}
+
+func TestInflationDeflationCommute_128_8(t *testing.T) {
+	testInflationDeflationCommute(t, 128, 8)
+}
+
+func testInflationDeflationCommute(t *testing.T, bigSize, smallSize int64) {
+	assert := assert.New(t)
+
+	ratio := bigSize / smallSize
+
+	// add source data
+	sourceData := make(map[int64][]byte)
+	src := new(stubBlockFetcher)
+	for i := int64(0); i < ratio; i++ {
+		data := make([]byte, smallSize)
+		rand.Read(data)
+		sourceData[i] = data
+		src.AddBlock(i, data)
+	}
+	bf := newDeflationBlockFetcher(
+		newInflationBlockFetcher(src, smallSize, bigSize),
+		bigSize, smallSize)
+
+	// fetch all blocks
+	for i := int64(0); i < ratio; i++ {
+		pair, err := bf.FetchBlock()
+		if !assert.NoError(err) {
+			return
+		}
+		if assert.Equal(i, pair.Index) {
+			assert.Equal(sourceData[i], pair.Block)
+		}
+	}
+
+	// should now be EOF, as we fetched all blocks
+	pair, err := bf.FetchBlock()
+	if assert.Error(err) {
+		assert.Nil(pair)
+	}
+}
+
+// onceBlockFetcher is a fetcher which returns a pair just once,
+// after which it will return io.EOF, until a new pair is given.
+type onceBlockFetcher struct {
+	pair *blockIndexPair
+}
+
+// FetchBlock implements blockFetcher.FetchBlock
+func (obf *onceBlockFetcher) FetchBlock() (*blockIndexPair, error) {
+	if obf.pair == nil {
+		return nil, io.EOF
+	}
+
+	pair := obf.pair
+	obf.pair = nil
+	return pair, nil
 }

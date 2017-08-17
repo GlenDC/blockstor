@@ -274,23 +274,6 @@ func (dbf *deflationBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 	}
 }
 
-// onceBlockFetcher is a fetcher which returns a pair just once,
-// after which it will return io.EOF, until a new pair is given.
-type onceBlockFetcher struct {
-	pair *blockIndexPair
-}
-
-// FetchBlock implements blockFetcher.FetchBlock
-func (obf *onceBlockFetcher) FetchBlock() (*blockIndexPair, error) {
-	if obf.pair == nil {
-		return nil, io.EOF
-	}
-
-	pair := obf.pair
-	obf.pair = nil
-	return pair, nil
-}
-
 // isNilBlock returns true if the given block contains only 0.
 func isNilBlock(block []byte) bool {
 	for _, b := range block {

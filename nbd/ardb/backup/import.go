@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -229,9 +230,9 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 				for {
 					pair, err = obf.FetchBlock()
 					if err != nil {
-						if err == io.EOF {
+						if err == io.EOF || err == errStreamBlocked {
 							err = nil
-							break // we have nothing more to send
+							break // we have nothing more to send (for now)
 						}
 						// unknown error, quit!
 						sendErr(err)
@@ -451,10 +452,14 @@ type streamBlockFetcher struct {
 func (sbf *streamBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 	pair, ok := sbf.sequences[sbf.scursor]
 	if !ok {
-		return nil, io.EOF
+		return nil, errStreamBlocked
 	}
 
 	delete(sbf.sequences, sbf.scursor)
 	sbf.scursor++
 	return &pair, nil
 }
+
+var (
+	errStreamBlocked = errors.New("stream block fetcher is blocked waiting for next expected block")
+)

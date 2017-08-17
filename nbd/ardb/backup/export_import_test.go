@@ -11,28 +11,28 @@ import (
 	"github.com/zero-os/0-Disk/nbd/ardb/storage"
 )
 
-func TestImportExportCycle_16_8_128(t *testing.T) {
-	testImportExportCycle(t, 16, 8, 128)
+func TestImportExportCycle_16_8_32(t *testing.T) {
+	testImportExportCycle(t, 16, 8, 32)
 }
 
-func TestImportExportCycle_64_8_128(t *testing.T) {
-	testImportExportCycle(t, 64, 8, 128)
+func TestImportExportCycle_64_8_32(t *testing.T) {
+	//testImportExportCycle(t, 64, 8, 32)
 }
 
-func TestImportExportCycle_8_8_128(t *testing.T) {
-	testImportExportCycle(t, 8, 8, 128)
+func TestImportExportCycle_8_8_32(t *testing.T) {
+	testImportExportCycle(t, 8, 8, 32)
 }
 
-func TestImportExportCycle_64_64_128(t *testing.T) {
-	testImportExportCycle(t, 64, 64, 128)
+func TestImportExportCycle_64_64_32(t *testing.T) {
+	testImportExportCycle(t, 64, 64, 32)
 }
 
-func TestImportExportCycle_8_16_128(t *testing.T) {
-	testImportExportCycle(t, 8, 16, 128)
+func TestImportExportCycle_8_16_32(t *testing.T) {
+	testImportExportCycle(t, 8, 16, 32)
 }
 
-func TestImportExportCycle_8_64_128(t *testing.T) {
-	testImportExportCycle(t, 8, 64, 128)
+func TestImportExportCycle_8_64_32(t *testing.T) {
+	testImportExportCycle(t, 8, 64, 32)
 }
 
 func testImportExportCycle(t *testing.T, srcBS, dstBS, blockCount int64) {
