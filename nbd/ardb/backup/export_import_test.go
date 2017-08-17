@@ -11,12 +11,16 @@ import (
 	"github.com/zero-os/0-Disk/nbd/ardb/storage"
 )
 
+func TestImportExportCycle_8_2_16(t *testing.T) {
+	testImportExportCycle(t, 8, 2, 16)
+}
+
 func TestImportExportCycle_16_8_32(t *testing.T) {
 	testImportExportCycle(t, 16, 8, 32)
 }
 
 func TestImportExportCycle_64_8_32(t *testing.T) {
-	//testImportExportCycle(t, 64, 8, 32)
+	testImportExportCycle(t, 64, 8, 32)
 }
 
 func TestImportExportCycle_8_8_32(t *testing.T) {

@@ -207,9 +207,11 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 				if output.SequenceIndex < sbf.scursor {
 					// NOTE: this should never happen,
 					//       as it indicates a bug in the code
-					sendErr(fmt.Errorf(
+					err = fmt.Errorf(
 						"unexpected sequence index returned, received %d, which is lower then %d",
-						output.SequenceIndex, sbf.scursor))
+						output.SequenceIndex, sbf.scursor)
+					sendErr(err)
+					return
 				}
 
 				// cache the current received output

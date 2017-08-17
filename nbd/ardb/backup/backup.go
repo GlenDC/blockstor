@@ -146,31 +146,43 @@ type inflationBlockFetcher struct {
 	in           blockFetcher
 	srcBS, dstBS int64
 	ratio        int64
+
+	cache struct {
+		output    []byte
+		offset    int64
+		prevIndex int64
+	}
 }
 
 // FetchBlock implements blockFetcher.FetchBlock
 func (ibf *inflationBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 	var err error
 	var indexDelta int64
+	var blockPair *blockIndexPair
 
-	output := make([]byte, ibf.dstBS)
+	// only start a new offset/output
+	// if we don't have an output left from last time
+	if ibf.cache.output == nil {
+		blockPair, err = ibf.in.FetchBlock()
+		if err != nil {
+			return nil, err
+		}
 
-	blockPair, err := ibf.in.FetchBlock()
-	if err != nil {
-		return nil, err
+		// create output
+		ibf.cache.output = make([]byte, ibf.dstBS)
+
+		// ensure that we start at the correct local offset
+		ibf.cache.offset = (blockPair.Index % ibf.ratio) * ibf.srcBS
+		// store the prevIndex, so we can use it for the next cycles
+		ibf.cache.prevIndex = blockPair.Index
+
+		// copy the fetched block into our final destination block
+		copy(ibf.cache.output[ibf.cache.offset:ibf.cache.offset+ibf.srcBS], blockPair.Block)
+		ibf.cache.offset += ibf.srcBS
 	}
 
-	// ensure that we start at the correct local offset
-	offset := (blockPair.Index % ibf.ratio) * ibf.srcBS
-	// store the prevIndex, so we can use it for the next cycles
-	prevIndex := blockPair.Index
-
-	// copy the fetched block into our final destination block
-	copy(output[offset:offset+ibf.srcBS], blockPair.Block)
-	offset += ibf.srcBS
-
 	// try to fill up the (bigger) destination block as much as possible
-	for offset < ibf.dstBS {
+	for ibf.cache.offset < ibf.dstBS {
 		// we have still space for an actual block, let's fetch it
 		blockPair, err = ibf.in.FetchBlock()
 		if err != nil {
@@ -178,37 +190,42 @@ func (ibf *inflationBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 				break // this is OK, as we'll just concider the rest of dst block as 0
 			}
 
+			// keep current output in cache, as we aren't done yet
 			return nil, err
 		}
 
 		// if our delta is bigger than 1,
 		// we need to first move our offset, as to respect the original block spacing.
-		indexDelta = blockPair.Index - prevIndex
-		if prevIndex >= 0 && indexDelta > 1 {
-			offset += (indexDelta - 1) * ibf.srcBS
+		indexDelta = blockPair.Index - ibf.cache.prevIndex
+		if ibf.cache.prevIndex >= 0 && indexDelta > 1 {
+			ibf.cache.offset += (indexDelta - 1) * ibf.srcBS
 			// if the offset goes now beyond the destination block size,
 			// we can return the output, as we're done here
-			if offset >= ibf.dstBS {
-				return &blockIndexPair{
-					Block: output,
-					Index: prevIndex / ibf.ratio,
-				}, nil
+			if ibf.cache.offset >= ibf.dstBS {
+				pair := &blockIndexPair{
+					Block: ibf.cache.output,
+					Index: ibf.cache.prevIndex / ibf.ratio,
+				}
+				ibf.cache.output = nil
+				return pair, nil
 			}
 		}
 
 		// remember the prev index for the next cycle (if there is one)
-		prevIndex = blockPair.Index
+		ibf.cache.prevIndex = blockPair.Index
 
 		// copy the fetched block into our final destination block
-		copy(output[offset:offset+ibf.srcBS], blockPair.Block)
-		offset += ibf.srcBS
+		copy(ibf.cache.output[ibf.cache.offset:ibf.cache.offset+ibf.srcBS], blockPair.Block)
+		ibf.cache.offset += ibf.srcBS
 	}
 
 	// return a filled destination block
-	return &blockIndexPair{
-		Block: output,
-		Index: prevIndex / ibf.ratio,
-	}, nil
+	pair := &blockIndexPair{
+		Block: ibf.cache.output,
+		Index: ibf.cache.prevIndex / ibf.ratio,
+	}
+	ibf.cache.output = nil
+	return pair, nil
 }
 
 // newDeflationBlockFetcher creates a new Deflation BlockFetcher,
