@@ -30,7 +30,7 @@ var ImportVdiskCmd = &cobra.Command{
 func importVdisk(cmd *cobra.Command, args []string) error {
 	logLevel := log.ErrorLevel
 	if cmdconfig.Verbose {
-		logLevel = log.InfoLevel
+		logLevel = log.DebugLevel
 	}
 	log.SetLevel(logLevel)
 
@@ -96,7 +96,7 @@ func checkVdiskExists(vdiskID string) error {
 	}
 
 	if !importVdiskCmdCfg.Force {
-		return fmt.Errorf("cannot restore vdisk %s as it already exists", vdiskID)
+		return fmt.Errorf("cannot import vdisk %s as it already exists", vdiskID)
 	}
 
 	vdisks := map[string]config.VdiskType{vdiskID: staticConfig.Type}

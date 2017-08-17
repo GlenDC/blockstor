@@ -47,6 +47,8 @@ type FTPServerConfig struct {
 	// Optional: password of Authorized account
 	//           for the given FTP server
 	Password string
+
+	RootDir string // optional
 }
 
 // String implements Stringer.String
@@ -55,15 +57,22 @@ func (cfg *FTPServerConfig) String() string {
 		return "" // invalid config
 	}
 
+	url := "ftp://"
 	if cfg.Username != "" {
-		url := "ftp://" + cfg.Username
+		url += cfg.Username
 		if cfg.Password != "" {
 			url += ":" + cfg.Password
 		}
-		return url + "@" + cfg.Address
+		url += "@" + cfg.Address
+	} else {
+		url += cfg.Address
 	}
 
-	return "ftp://" + cfg.Address
+	if cfg.RootDir != "" {
+		url += cfg.RootDir
+	}
+
+	return url
 }
 
 // Set implements flag.Value.Set
@@ -82,7 +91,8 @@ func (cfg *FTPServerConfig) Set(str string) error {
 	if parts[4] == "" {
 		cfg.Address += ":22"
 	}
-	cfg.Address += parts[5]
+
+	cfg.RootDir = parts[5]
 
 	// all info was set correctly
 	return nil
@@ -107,7 +117,7 @@ func (cfg *FTPServerConfig) Validate() error {
 	if cfg.Address == "" {
 		return errors.New("no ftp server address given")
 	}
-	if !valid.IsURL(cfg.Address) {
+	if !valid.IsURL(cfg.Address + cfg.RootDir) {
 		return errors.New("invalid ftp server address given")
 	}
 
@@ -131,7 +141,7 @@ func FTPDriver(cfg FTPServerConfig) (ServerDriver, error) {
 		Password:           cfg.Password,
 		ConnectionsPerHost: 10,
 		Timeout:            10 * time.Second,
-		Logger:             &ftpLogger{cfg.Address},
+		Logger:             newFTPLogger(cfg.Address),
 	}
 
 	client, err := goftp.DialConfig(config, cfg.Address)
@@ -139,15 +149,22 @@ func FTPDriver(cfg FTPServerConfig) (ServerDriver, error) {
 		return nil, err
 	}
 
-	return &ftpDriver{
+	ftpDriver := &ftpDriver{
 		client:    client,
 		knownDirs: newDirCache(),
-	}, nil
+		rootDir:   strings.Trim(cfg.RootDir, "/"),
+	}
+
+	return ftpDriver, nil
 }
 
 type ftpDriver struct {
 	client    *goftp.Client
 	knownDirs *dirCache
+	rootDir   string
+
+	fileExistsMux sync.Mutex
+	fileExists    func(string) bool
 }
 
 // SetDedupedBlock implements ServerDriver.SetDedupedBlock
@@ -182,12 +199,15 @@ func (ftp *ftpDriver) GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error {
 		return errInvalidHash
 	}
 
-	return ftp.client.Retrieve(path.Join(dir, file), w)
+	loc := path.Join(ftp.rootDir, dir, file)
+	return ftp.retrieve(loc, w)
 }
 
 // GetDedupedMap implements ServerDriver.GetDedupedMap
 func (ftp *ftpDriver) GetDedupedMap(id string, w io.Writer) error {
-	return ftp.client.Retrieve(path.Join(backupDir, id), w)
+	loc := path.Join(ftp.rootDir, backupDir, id)
+	fmt.Printf("%q\n", loc)
+	return ftp.retrieve(loc, w)
 }
 
 // Close implements ServerDriver.Close
@@ -201,6 +221,8 @@ func (ftp *ftpDriver) Close() error {
 // or in case a file at some point already exist, but is not a directory.
 // The returned string is how the client should refer to the created directory.
 func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
+	dir = path.Join(ftp.rootDir, dir)
+
 	// cheap early check
 	// if we already known about the given dir,
 	// than we know it exists (or at least we assume it does)
@@ -226,7 +248,7 @@ func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
 		// get the info about the current level (if it exists at all)
 		info, err := ftp.client.Stat(pwd)
 		// check if have to still create the current level
-		if isFTPErrorCode(ftpErrorNoExists, err) {
+		if isFTPErrorCode(ftpErrorNoExists, err) || isFTPErrorCode(ftpErrorInvalidCommand, err) {
 			// create the current (sub) directory
 			output, err := ftp.client.Mkdir(pwd)
 			if err != nil {
@@ -266,7 +288,7 @@ func (ftp *ftpDriver) lazyStore(path string, r io.Reader) error {
 		// if an error is received,
 		// let's check if simply telling us the file doesn't exist yet,
 		// if so, let's create it now.
-		if isFTPErrorCode(ftpErrorNoExists, err) {
+		if isFTPErrorCode(ftpErrorNoExists, err) || isFTPErrorCode(ftpErrorInvalidCommand, err) {
 			return ftp.client.Store(path, r)
 		}
 		return err
@@ -291,19 +313,51 @@ func (ftp *ftpDriver) retrieve(path string, dest io.Writer) error {
 	return err
 }
 
+// TODO: test this function
+
 func hashAsDirAndFile(hash zerodisk.Hash) (string, string, bool) {
 	if len(hash) != zerodisk.HashSize {
 		return "", "", false
 	}
 
-	dir := string(hash[:2]) + "/" + string(hash[2:4])
-	file := string(hash[4:])
+	dir := hashBytesToString(hash[:2]) + "/" + hashBytesToString(hash[2:4])
+	file := hashBytesToString(hash[4:])
 	return dir, file, true
+}
+
+// TODO: test this function
+
+func hashBytesToString(bs []byte) string {
+	var str string
+	for _, b := range bs {
+		str += hexadecimals[b/16] + hexadecimals[b%16]
+	}
+	return str
+}
+
+var hexadecimals = map[byte]string{
+	0:  "0",
+	1:  "1",
+	2:  "2",
+	3:  "3",
+	4:  "4",
+	5:  "5",
+	6:  "6",
+	7:  "7",
+	8:  "8",
+	9:  "9",
+	10: "A",
+	11: "B",
+	12: "C",
+	13: "D",
+	14: "E",
+	15: "F",
 }
 
 // list of ftp error codes we care about
 const (
-	ftpErrorNoExists = 550
+	ftpErrorInvalidCommand = 500
+	ftpErrorNoExists       = 550
 )
 
 // small util function which allows us to check if an error
@@ -316,14 +370,22 @@ func isFTPErrorCode(code int, err error) bool {
 	return false
 }
 
+func newFTPLogger(address string) *ftpLogger {
+	return &ftpLogger{
+		address: address,
+		logger:  log.New("goftp("+address+")", log.GetLevel()),
+	}
+}
+
 // simple logger used for the FTP driver debug logging
 type ftpLogger struct {
 	address string
+	logger  log.Logger
 }
 
 // Write implements io.Writer.Write
 func (l ftpLogger) Write(p []byte) (n int, err error) {
-	log.Debugf("FTP Server (%s): %s", l.address, string(p))
+	l.logger.Debug(string(p))
 	return len(p), nil
 }
 

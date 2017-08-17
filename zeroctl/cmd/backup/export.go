@@ -22,7 +22,7 @@ var ExportVdiskCmd = &cobra.Command{
 func exportVdisk(cmd *cobra.Command, args []string) error {
 	logLevel := log.ErrorLevel
 	if cmdconfig.Verbose {
-		logLevel = log.InfoLevel
+		logLevel = log.DebugLevel
 	}
 	log.SetLevel(logLevel)
 
@@ -49,7 +49,13 @@ func exportVdisk(cmd *cobra.Command, args []string) error {
 		CryptoKey:       vdiskCmdCfg.PrivateKey,
 	}
 
-	return backup.Export(ctx, cfg)
+	err = backup.Export(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(snapshotID)
+	return nil
 }
 
 func init() {

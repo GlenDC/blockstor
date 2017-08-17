@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"sync"
 
@@ -132,7 +133,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 					if err == io.EOF {
 						err = nil
 					} else {
-						sendErr(err)
+						sendErr(fmt.Errorf("error while fetching block: %v", err))
 					}
 					return
 				}
@@ -206,7 +207,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 
 					err = pipeline.WriteBlock(pair.Hash, pair.Block)
 					if err != nil {
-						sendErr(err)
+						sendErr(fmt.Errorf("error while processing block: %v", err))
 						return
 					}
 				}

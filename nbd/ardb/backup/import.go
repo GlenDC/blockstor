@@ -24,7 +24,7 @@ func Import(ctx context.Context, cfg Config) error {
 		return err
 	}
 
-	storageConfig, err := createBlockStorage(cfg.VdiskID, cfg.StorageSource, true)
+	storageConfig, err := createBlockStorage(cfg.VdiskID, cfg.StorageSource, false)
 	if err != nil {
 		return err
 	}
@@ -63,6 +63,10 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 	// load the deduped map
 	dedupedMap, err := LoadDedupedMap(cfg.SnapshotID, src, &cfg.CryptoKey, cfg.CompressionType)
 	if err != nil {
+		if err == ErrDataDidNotExist {
+			return fmt.Errorf("no deduped map could be found using the id %s", cfg.SnapshotID)
+		}
+
 		return err
 	}
 
