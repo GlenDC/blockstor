@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -113,6 +114,23 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 		// setup the block fetcher for the source
 		sbf := newStorageBlockFetcher(src, blockIndices, cfg.SrcBlockSize)
 		bf := sizedBlockFetcher(sbf, cfg.SrcBlockSize, cfg.DstBlockSize)
+
+		defer func() {
+			if err != nil {
+				return
+			}
+
+			// if no error has yet occured,
+			// ensure that at the end of this function,
+			// the block fetcher is empty
+			_, err = bf.FetchBlock()
+			if err == nil || err != io.EOF {
+				err = errors.New("storage's block fetcher still has unstored content left")
+				sendErr(err)
+				return
+			}
+			err = nil
+		}()
 
 		var blockHasChanged bool
 		var hash zerodisk.Hash

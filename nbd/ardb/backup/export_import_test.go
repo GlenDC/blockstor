@@ -99,6 +99,10 @@ func testImportExportCommute(t *testing.T, srcBS, dstBS, blockCount int64, sgen 
 			return
 		}
 	}
+	err = srcMS.Flush()
+	if !assert.NoError(err) {
+		return
+	}
 
 	// setup stub driver to use for this test
 	driver := newStubDriver()
@@ -131,6 +135,11 @@ func testImportExportCommute(t *testing.T, srcBS, dstBS, blockCount int64, sgen 
 		SnapshotID:      vdiskID,
 	}
 	err = importBS(ctx, driver, dstMS, importCfg)
+	if !assert.NoError(err) {
+		return
+	}
+
+	err = dstMS.Flush()
 	if !assert.NoError(err) {
 		return
 	}

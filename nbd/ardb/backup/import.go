@@ -154,6 +154,13 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 						return
 					}
 
+					// check if the content matches the hash
+					hash := zerodisk.HashBytes(block)
+					if !input.BlockHash.Equals(hash) {
+						sendErr(fmt.Errorf("block %d's hash does not match its content", input.BlockIndex))
+						return
+					}
+
 					// send block to storage goroutine (its final destination)
 					output := importOutput{
 						BlockData:     block,
@@ -188,6 +195,25 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 
 		sbf := newStreamBlockFetcher()
 		obf := sizedBlockFetcher(sbf, cfg.SrcBlockSize, cfg.DstBlockSize)
+
+		defer func() {
+			if err != nil {
+				return
+			}
+
+			sbf.streamStopped = true
+
+			// if no error has yet occured,
+			// ensure that at the end of this function,
+			// the block fetcher is empty
+			_, err = obf.FetchBlock()
+			if err == nil || err != io.EOF {
+				err = errors.New("output's block fetcher still has unstored content left")
+				sendErr(err)
+				return
+			}
+			err = nil
+		}()
 
 		var open bool
 		var output importOutput
@@ -450,12 +476,17 @@ func newStreamBlockFetcher() *streamBlockFetcher {
 // which is only supposed to be used for the import functionality,
 // as it uses its sequence Index as the s(equence)cursor
 type streamBlockFetcher struct {
-	sequences map[int64]blockIndexPair
-	scursor   int64
+	sequences     map[int64]blockIndexPair
+	scursor       int64
+	streamStopped bool
 }
 
 // FetchBlock implements blockFetcher.FetchBlock
 func (sbf *streamBlockFetcher) FetchBlock() (*blockIndexPair, error) {
+	if sbf.streamStopped && len(sbf.sequences) == 0 {
+		return nil, io.EOF
+	}
+
 	pair, ok := sbf.sequences[sbf.scursor]
 	if !ok {
 		return nil, errStreamBlocked

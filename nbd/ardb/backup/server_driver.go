@@ -206,7 +206,6 @@ func (ftp *ftpDriver) GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error {
 // GetDedupedMap implements ServerDriver.GetDedupedMap
 func (ftp *ftpDriver) GetDedupedMap(id string, w io.Writer) error {
 	loc := path.Join(ftp.rootDir, backupDir, id)
-	fmt.Printf("%q\n", loc)
 	return ftp.retrieve(loc, w)
 }
 
