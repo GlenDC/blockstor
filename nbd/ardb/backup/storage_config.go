@@ -38,6 +38,7 @@ func NewStorageConfig(data string) (cfg StorageConfig, err error) {
 		cfg.StorageType = FTPStorageType
 		return
 	}
+	err = nil
 
 	// check if the given data points to a valid path, as a last resort
 	if exists, _ := localFileExists(data, true); exists {
@@ -62,8 +63,8 @@ type StorageConfig struct {
 	StorageType StorageType
 }
 
-// Validate this StorageConfig struct.
-func (cfg *StorageConfig) Validate() error {
+// validate this StorageConfig struct.
+func (cfg *StorageConfig) validate() error {
 	if cfg.StorageType != LocalStorageType && cfg.Resource == nil {
 		return ErrNilResource
 	}
@@ -73,7 +74,7 @@ func (cfg *StorageConfig) Validate() error {
 		if !ok {
 			return ErrInvalidConfig
 		}
-		return ftpStorageConfig.Validate()
+		return ftpStorageConfig.validate()
 	}
 
 	if cfg.StorageType != LocalStorageType {

@@ -44,7 +44,8 @@ func NewFTPStorageConfig(data string) (cfg FTPStorageConfig, err error) {
 
 	cfg.RootDir = parts[5]
 
-	// all info was set correctly
+	// all info was set, ensure to validate it while we're at it
+	err = cfg.validate()
 	return
 }
 
@@ -65,7 +66,7 @@ type FTPStorageConfig struct {
 
 // String implements Stringer.String
 func (cfg *FTPStorageConfig) String() string {
-	if cfg.Validate() != nil {
+	if cfg.validate() != nil {
 		return "" // invalid config
 	}
 
@@ -104,8 +105,8 @@ func (cfg *FTPStorageConfig) Type() string {
 // It doesn't contain much validation, as that isn't the point of this regexp.
 var ftpURLRegexp = regexp.MustCompile(`^(?:ftp://)?(?:([^:@]+)(?::([^:@]+))?@)?(?:([^@/:]+)(:[0-9]+)?(/.*)?)$`)
 
-// Validate the FTP Storage Config.
-func (cfg *FTPStorageConfig) Validate() error {
+// validate the FTP Storage Config.
+func (cfg *FTPStorageConfig) validate() error {
 	if cfg == nil {
 		return nil
 	}
@@ -127,7 +128,7 @@ func (cfg *FTPStorageConfig) Validate() error {
 // FTPStorageDriver ceates a driver which allows you
 // to read/write deduped blocks/map from/to a FTP server.
 func FTPStorageDriver(cfg FTPStorageConfig) (StorageDriver, error) {
-	err := cfg.Validate()
+	err := cfg.validate()
 	if err != nil {
 		return nil, err
 	}

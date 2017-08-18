@@ -64,8 +64,7 @@ type Decrypter interface {
 
 // create a new AES256 encrypter/decrypter in Galois Counter Mode.
 func newAESSTDStreamCipher(key *CryptoKey) (stream *aesSTDStreamCipher, err error) {
-	if key == nil {
-		err = errors.New("no private key given")
+	if err = key.validate(); err != nil {
 		return
 	}
 
@@ -100,7 +99,10 @@ func (s *aesSTDStreamCipher) Encrypt(src io.Reader, dst io.Writer) error {
 	}
 
 	cipher := s.aesgcm.Seal(nonce, nonce, plain, nil)
-	_, err = dst.Write(cipher)
+	n, err := dst.Write(cipher)
+	if n <= 0 {
+		return errors.New("couldn't (AES) encrypt anything")
+	}
 	return err
 }
 
@@ -121,7 +123,10 @@ func (s *aesSTDStreamCipher) Decrypt(src io.Reader, dst io.Writer) error {
 		return err
 	}
 
-	_, err = dst.Write(plain)
+	n, err := dst.Write(plain)
+	if n <= 0 {
+		return errors.New("couldn't (AES) decrypt anything")
+	}
 	return err
 }
 
@@ -129,12 +134,19 @@ func (s *aesSTDStreamCipher) Decrypt(src io.Reader, dst io.Writer) error {
 type CryptoKey [CryptoKeySize]byte
 
 // String implements Value.String
-func (key CryptoKey) String() string {
+func (key *CryptoKey) String() string {
+	if key == nil {
+		return ""
+	}
 	return string(key[:])
 }
 
 // Set implements Value.Set
-func (key CryptoKey) Set(value string) error {
+func (key *CryptoKey) Set(value string) error {
+	if key == nil {
+		return errors.New("nil crypto key cannot be set")
+	}
+
 	if len(value) != CryptoKeySize {
 		return errors.New("wrong crypto key size")
 	}
@@ -144,6 +156,22 @@ func (key CryptoKey) Set(value string) error {
 }
 
 // Type implements PValue.Type
-func (key CryptoKey) Type() string {
+func (key *CryptoKey) Type() string {
+	if key == nil {
+		return "nil"
+	}
+
 	return "AESCryptoKey"
+}
+
+func (key *CryptoKey) validate() error {
+	if key != nil {
+		for _, b := range *key {
+			if b != 0 {
+				return nil
+			}
+		}
+	}
+
+	return errors.New("nil crypto key is not allowed")
 }

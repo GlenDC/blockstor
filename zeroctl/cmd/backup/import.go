@@ -129,7 +129,7 @@ func checkVdiskExists(vdiskID string) error {
 func init() {
 	ImportVdiskCmd.Long = ImportVdiskCmd.Short + `
 
-Remember to use the same snapshot identifier,
+Remember to use the same (snapshot) name,
 crypto (private) key and the compression type,
 as you used while exporting the backup in question.
 
@@ -139,12 +139,16 @@ These blocks won't be deleted in case of an error,
 so note that you might end up with some "garbage" in such a scenario.
 Deleting the vdisk in such a scenario will help with this problem.
 
-The FTP information is given as the -o, --output flag,
+The FTP information is given as the --storage flag,
 here are some examples of valid values for that flag:
-	\t+ localhost:22
-	\t+ ftp://1.2.3.4:200
-	\t+ ftp://user@127.0.0.1:200
-	\t+ ftp://user:pass@12.30.120.200:3000
+	+ localhost:22
+	+ ftp://1.2.3.4:200
+	+ ftp://user@127.0.0.1:200
+	+ ftp://user:pass@12.30.120.200:3000
+
+Alternatively you can also give a local directory path to the --storage flag,
+to backup to the local file system instead.
+This is also the default in case the --storage flag is not specified.
 `
 
 	ImportVdiskCmd.Flags().Var(
@@ -159,14 +163,14 @@ here are some examples of valid values for that flag:
 		"the size of the exported (deduped) blocks")
 	ImportVdiskCmd.Flags().VarP(
 		&vdiskCmdCfg.CompressionType, "compression", "c",
-		"the compression type to use")
+		"the compression type to use, options { lz4, xz }")
 	ImportVdiskCmd.Flags().IntVarP(
 		&vdiskCmdCfg.JobCount, "jobs", "j", runtime.NumCPU(),
 		"the amount of parallel jobs to run")
 
 	ImportVdiskCmd.Flags().VarP(
-		&vdiskCmdCfg.BackupStorageConfig, "input", "i",
-		"ftp server url or local dir path")
+		&vdiskCmdCfg.BackupStorageConfig, "storage", "s",
+		"ftp server url or local dir path to import the backup from")
 
 	ImportVdiskCmd.Flags().BoolVarP(
 		&importVdiskCmdCfg.Force,

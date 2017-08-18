@@ -8,7 +8,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/lunny/log"
+	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/nbd/ardb/storage"
 

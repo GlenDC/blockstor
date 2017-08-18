@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/user"
@@ -35,12 +36,12 @@ func (ld *localDriver) SetDedupedBlock(hash zerodisk.Hash, r io.Reader) error {
 		return errInvalidHash
 	}
 
-	return ld.writeFile(dir, file, r)
+	return ld.writeFile(dir, file, r, false)
 }
 
 // SetDedupedMap implements StorageDriver.SetDedupedMap
 func (ld *localDriver) SetDedupedMap(id string, r io.Reader) error {
-	return ld.writeFile(backupDir, id, r)
+	return ld.writeFile(backupDir, id, r, true)
 }
 
 // GetDedupedBlock implements StorageDriver.GetDedupedBlock
@@ -77,7 +78,7 @@ func (ld *localDriver) readFile(dir, name string, w io.Writer) error {
 	return err
 }
 
-func (ld *localDriver) writeFile(dir, name string, r io.Reader) error {
+func (ld *localDriver) writeFile(dir, name string, r io.Reader, overwrite bool) error {
 	dir = path.Join(ld.root, dir)
 	err := ld.mkdirs(dir)
 	if err != nil {
@@ -87,6 +88,12 @@ func (ld *localDriver) writeFile(dir, name string, r io.Reader) error {
 	path := path.Join(dir, name)
 
 	if exists, _ := localFileExists(path, false); exists {
+		if !overwrite {
+			// deduped blocks aren't supposed to be overwritten,
+			// as their hash should indicate that the content is the same
+			return nil
+		}
+
 		err = os.Remove(path)
 		if err != nil {
 			return err
@@ -135,7 +142,14 @@ func localFileExists(path string, dir bool) (bool, error) {
 		return false, err
 	}
 
-	return !dir || stat.IsDir(), nil
+	if !dir && stat.IsDir() {
+		return false, errors.New("unexpected directory: " + path)
+	}
+	if dir && !stat.IsDir() {
+		return false, errors.New("unexpected file: " + path)
+	}
+
+	return true, nil
 }
 
 var (

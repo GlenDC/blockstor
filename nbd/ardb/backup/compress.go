@@ -52,8 +52,7 @@ func (ct *CompressionType) Type() string {
 	return "CompressionType"
 }
 
-// Validate implements Validator.Validate
-func (ct CompressionType) Validate() error {
+func (ct CompressionType) validate() error {
 	switch ct {
 	case LZ4Compression, XZCompression:
 		return nil
@@ -140,7 +139,11 @@ func (c lz4Compressor) Compress(src io.Reader, dst io.Writer) error {
 	w := lz4.NewWriter(dst)
 	w.Header.BlockChecksum = true
 
-	_, err := w.ReadFrom(src)
+	n, err := w.ReadFrom(src)
+	if n <= 0 {
+		w.Close()
+		return errors.New("couldn't (LZ4) compress any data")
+	}
 	if err != nil {
 		w.Close()
 		return err
@@ -154,7 +157,10 @@ func (d lz4Decompressor) Decompress(src io.Reader, dst io.Writer) error {
 	r := lz4.NewReader(src)
 	r.Header.BlockChecksum = true
 
-	_, err := r.WriteTo(dst)
+	n, err := r.WriteTo(dst)
+	if n <= 0 {
+		return errors.New("couldn't (LZ4) decompress any data")
+	}
 	return err
 }
 
@@ -169,7 +175,10 @@ func (c xzCompressor) Compress(src io.Reader, dst io.Writer) error {
 		return err
 	}
 
-	_, err = io.Copy(w, src)
+	n, err := io.Copy(w, src)
+	if n <= 0 {
+		return errors.New("couldn't (XZ) compress any data")
+	}
 	if err != nil {
 		w.Close()
 		return err
@@ -186,6 +195,9 @@ func (d xzDecompressor) Decompress(src io.Reader, dst io.Writer) error {
 		return err
 	}
 
-	_, err = io.Copy(dst, r)
+	n, err := io.Copy(dst, r)
+	if n <= 0 {
+		return errors.New("couldn't (XZ) decompress any data")
+	}
 	return err
 }

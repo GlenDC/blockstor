@@ -70,7 +70,7 @@ func (cfg *Config) validate() error {
 		return err
 	}
 
-	err = cfg.BackupStorageConfig.Validate()
+	err = cfg.BackupStorageConfig.validate()
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (cfg *Config) validate() error {
 		cfg.JobCount = runtime.NumCPU()
 	}
 
-	err = cfg.CompressionType.Validate()
+	err = cfg.CompressionType.validate()
 	if err != nil {
 		return err
 	}
