@@ -24,7 +24,7 @@ func Export(ctx context.Context, cfg Config) error {
 		return err
 	}
 
-	storageConfig, err := createBlockStorage(cfg.VdiskID, cfg.StorageSource, true)
+	storageConfig, err := createBlockStorage(cfg.VdiskID, cfg.BlockStorageConfig, true)
 	if err != nil {
 		return err
 	}
@@ -41,11 +41,11 @@ func Export(ctx context.Context, cfg Config) error {
 	}
 	defer blockStorage.Close()
 
-	ftpDriver, err := FTPDriver(cfg.FTPServer)
+	storageDriver, err := NewStorageDriver(cfg.BackupStorageConfig)
 	if err != nil {
 		return err
 	}
-	defer ftpDriver.Close()
+	defer storageDriver.Close()
 
 	exportConfig := exportConfig{
 		JobCount:        cfg.JobCount,
@@ -56,10 +56,10 @@ func Export(ctx context.Context, cfg Config) error {
 		SnapshotID:      cfg.SnapshotID,
 	}
 
-	return exportBS(ctx, blockStorage, storageConfig.Indices, ftpDriver, exportConfig)
+	return exportBS(ctx, blockStorage, storageConfig.Indices, storageDriver, exportConfig)
 }
 
-func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int64, dst ServerDriver, cfg exportConfig) error {
+func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int64, dst StorageDriver, cfg exportConfig) error {
 	// load the deduped map, or create a new one if it doesn't exist yet
 	dedupedMap, err := ExistingOrNewDedupedMap(
 		cfg.SnapshotID, dst, &cfg.CryptoKey, cfg.CompressionType)
@@ -190,9 +190,9 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 		}
 
 		pipeline := &exportPipeline{
-			Compressor:   compressor,
-			Encrypter:    encrypter,
-			ServerDriver: dst,
+			Compressor:    compressor,
+			Encrypter:     encrypter,
+			StorageDriver: dst,
 		}
 
 		// launch worker
@@ -312,9 +312,9 @@ type blockHashPair struct {
 
 // compress -> encrypt -> store
 type exportPipeline struct {
-	Compressor   Compressor
-	Encrypter    Encrypter
-	ServerDriver ServerDriver
+	Compressor    Compressor
+	Encrypter     Encrypter
+	StorageDriver StorageDriver
 }
 
 func (p *exportPipeline) WriteBlock(hash zerodisk.Hash, data []byte) error {
@@ -332,5 +332,5 @@ func (p *exportPipeline) WriteBlock(hash zerodisk.Hash, data []byte) error {
 		return err
 	}
 
-	return p.ServerDriver.SetDedupedBlock(hash, bufA)
+	return p.StorageDriver.SetDedupedBlock(hash, bufA)
 }

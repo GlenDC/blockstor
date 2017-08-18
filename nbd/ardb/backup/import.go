@@ -24,7 +24,7 @@ func Import(ctx context.Context, cfg Config) error {
 		return err
 	}
 
-	storageConfig, err := createBlockStorage(cfg.VdiskID, cfg.StorageSource, false)
+	storageConfig, err := createBlockStorage(cfg.VdiskID, cfg.BlockStorageConfig, false)
 	if err != nil {
 		return err
 	}
@@ -41,11 +41,11 @@ func Import(ctx context.Context, cfg Config) error {
 	}
 	defer blockStorage.Close()
 
-	ftpDriver, err := FTPDriver(cfg.FTPServer)
+	storageDriver, err := NewStorageDriver(cfg.BackupStorageConfig)
 	if err != nil {
 		return err
 	}
-	defer ftpDriver.Close()
+	defer storageDriver.Close()
 
 	importConfig := importConfig{
 		JobCount:        cfg.JobCount,
@@ -56,10 +56,10 @@ func Import(ctx context.Context, cfg Config) error {
 		SnapshotID:      cfg.SnapshotID,
 	}
 
-	return importBS(ctx, ftpDriver, blockStorage, importConfig)
+	return importBS(ctx, storageDriver, blockStorage, importConfig)
 }
 
-func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, cfg importConfig) error {
+func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, cfg importConfig) error {
 	// load the deduped map
 	dedupedMap, err := LoadDedupedMap(cfg.SnapshotID, src, &cfg.CryptoKey, cfg.CompressionType)
 	if err != nil {
@@ -114,9 +114,9 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 		}
 
 		pipeline := &importPipeline{
-			ServerDriver: src,
-			Decrypter:    decrypter,
-			Decompressor: decompressor,
+			StorageDriver: src,
+			Decrypter:     decrypter,
+			Decompressor:  decompressor,
 		}
 
 		// launch worker
@@ -358,14 +358,14 @@ func importBS(ctx context.Context, src ServerDriver, dst storage.BlockStorage, c
 
 // fetch -> decrypt -> decompress
 type importPipeline struct {
-	ServerDriver ServerDriver
-	Decrypter    Decrypter
-	Decompressor Decompressor
+	StorageDriver StorageDriver
+	Decrypter     Decrypter
+	Decompressor  Decompressor
 }
 
 func (p *importPipeline) ReadBlock(hash zerodisk.Hash) ([]byte, error) {
 	bufA := bytes.NewBuffer(nil)
-	err := p.ServerDriver.GetDedupedBlock(hash, bufA)
+	err := p.StorageDriver.GetDedupedBlock(hash, bufA)
 	if err != nil {
 		return nil, err
 	}

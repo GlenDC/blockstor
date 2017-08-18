@@ -23,21 +23,33 @@ var (
 	ErrDataDidNotExist = errors.New("requested data did not exist")
 )
 
-// ServerDriver defines the API of a driver,
-// which allows us to read/write from/to a server,
-// the deduped blocks and map which form a backup.
-type ServerDriver interface {
-	SetDedupedBlock(hash zerodisk.Hash, r io.Reader) error
-	SetDedupedMap(id string, r io.Reader) error
+// NewFTPStorageConfig creates a new FTP Storage Config,
+// based on a given string
+func NewFTPStorageConfig(data string) (cfg FTPStorageConfig, err error) {
+	parts := ftpURLRegexp.FindStringSubmatch(data)
+	if len(parts) != 6 {
+		err = fmt.Errorf("'%s' is not a valid FTP URL", data)
+		return
+	}
 
-	GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error
-	GetDedupedMap(id string, w io.Writer) error
+	// set credentials
+	cfg.Username = parts[1]
+	cfg.Password = parts[2]
 
-	Close() error
+	// set address
+	cfg.Address = parts[3] + parts[4]
+	if parts[4] == "" {
+		cfg.Address += ":22"
+	}
+
+	cfg.RootDir = parts[5]
+
+	// all info was set correctly
+	return
 }
 
-// FTPServerConfig is used to configure and create an FTP Driver.
-type FTPServerConfig struct {
+// FTPStorageConfig is used to configure and create an FTP (Storage) Driver.
+type FTPStorageConfig struct {
 	// Address of the FTP Server
 	Address string
 
@@ -52,7 +64,7 @@ type FTPServerConfig struct {
 }
 
 // String implements Stringer.String
-func (cfg *FTPServerConfig) String() string {
+func (cfg *FTPStorageConfig) String() string {
 	if cfg.Validate() != nil {
 		return "" // invalid config
 	}
@@ -76,31 +88,15 @@ func (cfg *FTPServerConfig) String() string {
 }
 
 // Set implements flag.Value.Set
-func (cfg *FTPServerConfig) Set(str string) error {
-	parts := ftpURLRegexp.FindStringSubmatch(str)
-	if len(parts) != 6 {
-		return fmt.Errorf("'%s' is not a valid FTP URL", str)
-	}
-
-	// set credentials
-	cfg.Username = parts[1]
-	cfg.Password = parts[2]
-
-	// set address
-	cfg.Address = parts[3] + parts[4]
-	if parts[4] == "" {
-		cfg.Address += ":22"
-	}
-
-	cfg.RootDir = parts[5]
-
-	// all info was set correctly
-	return nil
+func (cfg *FTPStorageConfig) Set(str string) error {
+	var err error
+	*cfg, err = NewFTPStorageConfig(str)
+	return err
 }
 
 // Type implements PFlag.Type
-func (cfg *FTPServerConfig) Type() string {
-	return "FTPServerConfig"
+func (cfg *FTPStorageConfig) Type() string {
+	return "FTPStorageConfig"
 }
 
 // ftpURLRegexp is a simplistic ftp URL regexp,
@@ -108,8 +104,8 @@ func (cfg *FTPServerConfig) Type() string {
 // It doesn't contain much validation, as that isn't the point of this regexp.
 var ftpURLRegexp = regexp.MustCompile(`^(?:ftp://)?(?:([^:@]+)(?::([^:@]+))?@)?(?:([^@/:]+)(:[0-9]+)?(/.*)?)$`)
 
-// Validate the FTP Server Config.
-func (cfg *FTPServerConfig) Validate() error {
+// Validate the FTP Storage Config.
+func (cfg *FTPStorageConfig) Validate() error {
 	if cfg == nil {
 		return nil
 	}
@@ -128,9 +124,9 @@ func (cfg *FTPServerConfig) Validate() error {
 	return nil
 }
 
-// FTPDriver ceates a driver which allows you
+// FTPStorageDriver ceates a driver which allows you
 // to read/write deduped blocks/map from/to a FTP server.
-func FTPDriver(cfg FTPServerConfig) (ServerDriver, error) {
+func FTPStorageDriver(cfg FTPStorageConfig) (StorageDriver, error) {
 	err := cfg.Validate()
 	if err != nil {
 		return nil, err
@@ -149,16 +145,14 @@ func FTPDriver(cfg FTPServerConfig) (ServerDriver, error) {
 		return nil, err
 	}
 
-	ftpDriver := &ftpDriver{
+	return &ftpStorageDriver{
 		client:    client,
 		knownDirs: newDirCache(),
 		rootDir:   strings.Trim(cfg.RootDir, "/"),
-	}
-
-	return ftpDriver, nil
+	}, nil
 }
 
-type ftpDriver struct {
+type ftpStorageDriver struct {
 	client    *goftp.Client
 	knownDirs *dirCache
 	rootDir   string
@@ -168,7 +162,7 @@ type ftpDriver struct {
 }
 
 // SetDedupedBlock implements ServerDriver.SetDedupedBlock
-func (ftp *ftpDriver) SetDedupedBlock(hash zerodisk.Hash, r io.Reader) error {
+func (ftp *ftpStorageDriver) SetDedupedBlock(hash zerodisk.Hash, r io.Reader) error {
 	dir, file, ok := hashAsDirAndFile(hash)
 	if !ok {
 		return errInvalidHash
@@ -183,7 +177,7 @@ func (ftp *ftpDriver) SetDedupedBlock(hash zerodisk.Hash, r io.Reader) error {
 }
 
 // SetDedupedMap implements ServerDriver.SetDedupedMap
-func (ftp *ftpDriver) SetDedupedMap(id string, r io.Reader) error {
+func (ftp *ftpStorageDriver) SetDedupedMap(id string, r io.Reader) error {
 	dir, err := ftp.mkdirs(backupDir)
 	if err != nil {
 		return err
@@ -193,7 +187,7 @@ func (ftp *ftpDriver) SetDedupedMap(id string, r io.Reader) error {
 }
 
 // GetDedupedBlock implements ServerDriver.GetDedupedBlock
-func (ftp *ftpDriver) GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error {
+func (ftp *ftpStorageDriver) GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error {
 	dir, file, ok := hashAsDirAndFile(hash)
 	if !ok {
 		return errInvalidHash
@@ -204,13 +198,13 @@ func (ftp *ftpDriver) GetDedupedBlock(hash zerodisk.Hash, w io.Writer) error {
 }
 
 // GetDedupedMap implements ServerDriver.GetDedupedMap
-func (ftp *ftpDriver) GetDedupedMap(id string, w io.Writer) error {
+func (ftp *ftpStorageDriver) GetDedupedMap(id string, w io.Writer) error {
 	loc := path.Join(ftp.rootDir, backupDir, id)
 	return ftp.retrieve(loc, w)
 }
 
 // Close implements ServerDriver.Close
-func (ftp *ftpDriver) Close() error {
+func (ftp *ftpStorageDriver) Close() error {
 	return ftp.client.Close()
 }
 
@@ -219,7 +213,7 @@ func (ftp *ftpDriver) Close() error {
 // An error is returned if any of the used FTP commands returns an error,
 // or in case a file at some point already exist, but is not a directory.
 // The returned string is how the client should refer to the created directory.
-func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
+func (ftp *ftpStorageDriver) mkdirs(dir string) (string, error) {
 	dir = path.Join(ftp.rootDir, dir)
 
 	// cheap early check
@@ -265,7 +259,7 @@ func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
 // lazyStore only stores a file if it doesn't exist yet already.
 // An error is returned if any of the used FTP commands returns an error,
 // or in case the given path already exists and is a directory, instead of a file.
-func (ftp *ftpDriver) lazyStore(path string, r io.Reader) error {
+func (ftp *ftpStorageDriver) lazyStore(path string, r io.Reader) error {
 	// get info about the given path
 	info, err := ftp.client.Stat(path)
 	if err != nil {
@@ -289,35 +283,13 @@ func (ftp *ftpDriver) lazyStore(path string, r io.Reader) error {
 
 // retrieve data from an FTP server.
 // returns ErrDataDidNotExist in case there was no data available on the given path.
-func (ftp *ftpDriver) retrieve(path string, dest io.Writer) error {
+func (ftp *ftpStorageDriver) retrieve(path string, dest io.Writer) error {
 	err := ftp.client.Retrieve(path, dest)
 	if isFTPErrorCode(ftpErrorNoExists, err) {
 		return ErrDataDidNotExist
 	}
 	return err
 }
-
-// TODO: test this function
-
-func hashAsDirAndFile(hash zerodisk.Hash) (string, string, bool) {
-	if len(hash) != zerodisk.HashSize {
-		return "", "", false
-	}
-
-	dir := hashBytesToString(hash[:2]) + "/" + hashBytesToString(hash[2:4])
-	file := hashBytesToString(hash[4:])
-	return dir, file, true
-}
-
-func hashBytesToString(bs []byte) string {
-	var total []byte
-	for _, b := range bs {
-		total = append(total, hexadecimals[b/16], hexadecimals[b%16])
-	}
-	return string(total)
-}
-
-const hexadecimals = "0123456789ABCDEF"
 
 // list of ftp error codes we care about
 const (
@@ -354,34 +326,3 @@ func (l ftpLogger) Write(p []byte) (n int, err error) {
 	l.logger.Debug(string(p))
 	return len(p), nil
 }
-
-func newDirCache() *dirCache {
-	return &dirCache{knownDirs: make(map[string]struct{})}
-}
-
-type dirCache struct {
-	knownDirs map[string]struct{}
-	mux       sync.RWMutex
-}
-
-func (cache *dirCache) AddDir(path string) {
-	cache.mux.Lock()
-	defer cache.mux.Unlock()
-	cache.knownDirs[path] = struct{}{}
-}
-
-func (cache *dirCache) CheckDir(path string) bool {
-	cache.mux.RLock()
-	defer cache.mux.RUnlock()
-	_, exists := cache.knownDirs[path]
-	return exists
-}
-
-const (
-	backupDir = "backups"
-)
-
-// some static errors returned by this file's API
-var (
-	errInvalidHash = errors.New("invalid hash given")
-)

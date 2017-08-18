@@ -14,7 +14,7 @@ import (
 
 // ExportVdiskCmd represents the vdisk export subcommand
 var ExportVdiskCmd = &cobra.Command{
-	Use:   "vdisk vdiskid cryptoKey ftpurl",
+	Use:   "vdisk vdiskid cryptoKey",
 	Short: "export a vdisk",
 	RunE:  exportVdisk,
 }
@@ -39,14 +39,14 @@ func exportVdisk(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	cfg := backup.Config{
-		VdiskID:         vdiskCmdCfg.VdiskID,
-		SnapshotID:      snapshotID,
-		BlockSize:       vdiskCmdCfg.ExportBlockSize,
-		StorageSource:   vdiskCmdCfg.SourceConfig,
-		FTPServer:       vdiskCmdCfg.FTPServerConfig,
-		JobCount:        vdiskCmdCfg.JobCount,
-		CompressionType: vdiskCmdCfg.CompressionType,
-		CryptoKey:       vdiskCmdCfg.PrivateKey,
+		VdiskID:             vdiskCmdCfg.VdiskID,
+		SnapshotID:          snapshotID,
+		BlockSize:           vdiskCmdCfg.ExportBlockSize,
+		BlockStorageConfig:  vdiskCmdCfg.SourceConfig,
+		BackupStorageConfig: vdiskCmdCfg.BackupStorageConfig,
+		JobCount:            vdiskCmdCfg.JobCount,
+		CompressionType:     vdiskCmdCfg.CompressionType,
+		CryptoKey:           vdiskCmdCfg.PrivateKey,
 	}
 
 	err = backup.Export(ctx, cfg)
@@ -70,8 +70,8 @@ deduped blocks might already have been written to the FTP server.
 These blocks won't be deleted in case of an error,
 so note that you might end up with some "garbage" in such a scenario.
 
-The FTP information is given as the third argument,
-here are some examples of valid values for that argument:
+The FTP information is given using the -i, --input flaag,
+here are some examples of valid values for that flag:
 	\t+ localhost:22
 	\t+ ftp://1.2.3.4:200
 	\t+ ftp://user@127.0.0.1:200
@@ -84,20 +84,18 @@ here are some examples of valid values for that argument:
 
 	ExportVdiskCmd.Flags().StringVar(
 		&vdiskCmdCfg.SnapshotID, "name", "",
-		"the name of the backup (default: `<vdiskID>_epoch`)")
+		"the name of the backup (default `<vdiskID>_epoch`)")
 	ExportVdiskCmd.Flags().Int64VarP(
 		&vdiskCmdCfg.ExportBlockSize, "blocksize", "b", backup.DefaultBlockSize,
-		fmt.Sprintf(
-			"the size of the exported (deduped) blocks (default: %d)",
-			backup.DefaultBlockSize))
+		"the size of the exported (deduped) blocks")
 	ExportVdiskCmd.Flags().VarP(
 		&vdiskCmdCfg.CompressionType, "compression", "c",
-		fmt.Sprintf(
-			"the compression type to use (default: %s)",
-			vdiskCmdCfg.CompressionType.String()))
+		"the compression type to use")
 	ExportVdiskCmd.Flags().IntVarP(
 		&vdiskCmdCfg.JobCount, "jobs", "j", runtime.NumCPU(),
-		fmt.Sprintf(
-			"the amount of parallel jobs to run (default: %d)",
-			runtime.NumCPU()))
+		"the amount of parallel jobs to run")
+
+	ExportVdiskCmd.Flags().VarP(
+		&vdiskCmdCfg.BackupStorageConfig, "output", "o",
+		"ftp server url or local dir path")
 }

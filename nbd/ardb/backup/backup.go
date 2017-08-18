@@ -29,9 +29,9 @@ type Config struct {
 	BlockSize int64
 
 	// Required: SourceConfig to configure the storage with
-	StorageSource config.SourceConfig
-	// Required: FTPServerConfig used to configure the destination FTP Server
-	FTPServer FTPServerConfig
+	BlockStorageConfig config.SourceConfig
+	// Required: BackupStorageConfig used to configure the backup storage driver.
+	BackupStorageConfig StorageConfig
 
 	// Optional: Amount of jobs (goroutines) to run simultaneously
 	//           (to import/export in parallel)
@@ -65,12 +65,12 @@ func (cfg *Config) validate() error {
 		}
 	}
 
-	err := cfg.StorageSource.Validate()
+	err := cfg.BlockStorageConfig.Validate()
 	if err != nil {
 		return err
 	}
 
-	err = cfg.FTPServer.Validate()
+	err = cfg.BackupStorageConfig.Validate()
 	if err != nil {
 		return err
 	}

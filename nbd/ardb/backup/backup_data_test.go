@@ -5,40 +5,36 @@ import "github.com/zero-os/0-Disk/config"
 var validConfigs = []Config{
 	// Explicit Example
 	Config{
-		VdiskID:       "foo",
-		SnapshotID:    "foo",
-		BlockSize:     DefaultBlockSize,
-		StorageSource: config.SourceConfig{},
-		FTPServer: FTPServerConfig{
-			Address:  "localhost:22",
-			Username: "",
-			Password: "",
-		},
-		JobCount:        0,
-		CompressionType: LZ4Compression,
-		CryptoKey:       CryptoKey{4, 2},
+		VdiskID:             "foo",
+		SnapshotID:          "foo",
+		BlockSize:           DefaultBlockSize,
+		BlockStorageConfig:  config.SourceConfig{},
+		BackupStorageConfig: StorageConfig{},
+		JobCount:            0,
+		CompressionType:     LZ4Compression,
+		CryptoKey:           CryptoKey{4, 2},
 	},
 	// implicit version of first example
 	Config{
-		VdiskID: "foo",
-		FTPServer: FTPServerConfig{
-			Address: "localhost:22",
-		},
+		VdiskID:   "foo",
 		CryptoKey: CryptoKey{4, 2},
 	},
-	// full example
+	// full (FTP) example
 	Config{
 		VdiskID:    "foo",
 		SnapshotID: "bar",
 		BlockSize:  4096,
-		StorageSource: config.SourceConfig{
+		BlockStorageConfig: config.SourceConfig{
 			Resource:   "localhost:20021",
 			SourceType: config.ETCDSourceType,
 		},
-		FTPServer: FTPServerConfig{
-			Address:  "localhost:2000",
-			Username: "root",
-			Password: "secret",
+		BackupStorageConfig: StorageConfig{
+			Resource: FTPStorageConfig{
+				Address:  "localhost:2000",
+				Username: "root",
+				Password: "secret",
+			},
+			StorageType: FTPStorageType,
 		},
 		JobCount:        1,
 		CompressionType: XZCompression,
@@ -57,36 +53,26 @@ var invalidConfigs = []Config{
 	Config{
 		VdiskID:   "foo",
 		BlockSize: 2000,
-		FTPServer: FTPServerConfig{
-			Address: "localhost:2000",
-		},
 	},
 	// Missing VdiskID
-	Config{
-		FTPServer: FTPServerConfig{
-			Address: "localhost:2000",
-		},
-	},
-	// Bad FTP Server Config
+	Config{},
+	// Bad Storage Config
 	Config{
 		VdiskID: "foo",
+		BackupStorageConfig: StorageConfig{
+			Resource: 42,
+		},
 	},
 	// Bad Config Source
 	Config{
 		VdiskID: "foo",
-		StorageSource: config.SourceConfig{
+		BlockStorageConfig: config.SourceConfig{
 			SourceType: config.ETCDSourceType,
-		},
-		FTPServer: FTPServerConfig{
-			Address: "localhost:2000",
 		},
 	},
 	// bad compression type
 	Config{
-		VdiskID: "foo",
-		FTPServer: FTPServerConfig{
-			Address: "localhost:2000",
-		},
+		VdiskID:         "foo",
 		CompressionType: CompressionType(42),
 	},
 }

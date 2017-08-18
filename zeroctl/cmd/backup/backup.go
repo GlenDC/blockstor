@@ -12,14 +12,14 @@ import (
 // see `init` and `parsePosArguments` for more information
 // about the meaning of each config property.
 var vdiskCmdCfg struct {
-	VdiskID         string                 // required
-	SourceConfig    config.SourceConfig    // optional
-	SnapshotID      string                 // optional
-	ExportBlockSize int64                  // optional
-	FTPServerConfig backup.FTPServerConfig // required
-	PrivateKey      backup.CryptoKey       // required
-	CompressionType backup.CompressionType // optional
-	JobCount        int                    // optional
+	VdiskID             string                 // required
+	SourceConfig        config.SourceConfig    // optional
+	SnapshotID          string                 // optional
+	ExportBlockSize     int64                  // optional
+	BackupStorageConfig backup.StorageConfig   // optional
+	PrivateKey          backup.CryptoKey       // required
+	CompressionType     backup.CompressionType // optional
+	JobCount            int                    // optional
 }
 
 // snapshotID defaults to `<vdiskID>_epoch` if not defined
@@ -35,18 +35,13 @@ func snapshotID(id, vdiskID string) string {
 func parsePosArguments(args []string) error {
 	// validate pos arg length
 	argn := len(args)
-	if argn < 3 {
+	if argn < 2 {
 		return errors.New("not enough arguments")
-	} else if argn > 3 {
+	} else if argn > 2 {
 		return errors.New("too many arguments")
 	}
 
 	vdiskCmdCfg.VdiskID = args[0]
 
-	err := vdiskCmdCfg.PrivateKey.Set(args[1])
-	if err != nil {
-		return err
-	}
-
-	return vdiskCmdCfg.FTPServerConfig.Set(args[2])
+	return vdiskCmdCfg.PrivateKey.Set(args[1])
 }

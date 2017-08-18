@@ -22,7 +22,7 @@ var importVdiskCmdCfg struct {
 
 // ImportVdiskCmd represents the vdisk import subcommand
 var ImportVdiskCmd = &cobra.Command{
-	Use:   "vdisk vdiskid cryptoKey ftpurl",
+	Use:   "vdisk vdiskid cryptoKey",
 	Short: "import a vdisk",
 	RunE:  importVdisk,
 }
@@ -52,14 +52,14 @@ func importVdisk(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	cfg := backup.Config{
-		VdiskID:         vdiskCmdCfg.VdiskID,
-		SnapshotID:      snapshotID,
-		BlockSize:       vdiskCmdCfg.ExportBlockSize,
-		StorageSource:   vdiskCmdCfg.SourceConfig,
-		FTPServer:       vdiskCmdCfg.FTPServerConfig,
-		JobCount:        vdiskCmdCfg.JobCount,
-		CompressionType: vdiskCmdCfg.CompressionType,
-		CryptoKey:       vdiskCmdCfg.PrivateKey,
+		VdiskID:             vdiskCmdCfg.VdiskID,
+		SnapshotID:          snapshotID,
+		BlockSize:           vdiskCmdCfg.ExportBlockSize,
+		BlockStorageConfig:  vdiskCmdCfg.SourceConfig,
+		BackupStorageConfig: vdiskCmdCfg.BackupStorageConfig,
+		JobCount:            vdiskCmdCfg.JobCount,
+		CompressionType:     vdiskCmdCfg.CompressionType,
+		CryptoKey:           vdiskCmdCfg.PrivateKey,
 	}
 
 	return backup.Import(ctx, cfg)
@@ -127,7 +127,7 @@ func checkVdiskExists(vdiskID string) error {
 }
 
 func init() {
-	ExportVdiskCmd.Long = ExportVdiskCmd.Short + `
+	ImportVdiskCmd.Long = ImportVdiskCmd.Short + `
 
 Remember to use the same snapshot identifier,
 crypto (private) key and the compression type,
@@ -139,8 +139,8 @@ These blocks won't be deleted in case of an error,
 so note that you might end up with some "garbage" in such a scenario.
 Deleting the vdisk in such a scenario will help with this problem.
 
-The FTP information is given as the third argument,
-here are some examples of valid values for that argument:
+The FTP information is given as the -o, --output flag,
+here are some examples of valid values for that flag:
 	\t+ localhost:22
 	\t+ ftp://1.2.3.4:200
 	\t+ ftp://user@127.0.0.1:200
@@ -153,22 +153,20 @@ here are some examples of valid values for that argument:
 
 	ImportVdiskCmd.Flags().StringVar(
 		&vdiskCmdCfg.SnapshotID, "name", "",
-		"the name of the backup (default: `<vdiskID>_epoch`)")
+		"the name of the backup (default `<vdiskID>_epoch`)")
 	ImportVdiskCmd.Flags().Int64VarP(
 		&vdiskCmdCfg.ExportBlockSize, "blocksize", "b", backup.DefaultBlockSize,
-		fmt.Sprintf(
-			"the size of the exported (deduped) blocks (default: %d)",
-			backup.DefaultBlockSize))
+		"the size of the exported (deduped) blocks")
 	ImportVdiskCmd.Flags().VarP(
 		&vdiskCmdCfg.CompressionType, "compression", "c",
-		fmt.Sprintf(
-			"the compression type to use (default: %s)",
-			vdiskCmdCfg.CompressionType.String()))
+		"the compression type to use")
 	ImportVdiskCmd.Flags().IntVarP(
 		&vdiskCmdCfg.JobCount, "jobs", "j", runtime.NumCPU(),
-		fmt.Sprintf(
-			"the amount of parallel jobs to run (default: %d)",
-			runtime.NumCPU()))
+		"the amount of parallel jobs to run")
+
+	ImportVdiskCmd.Flags().VarP(
+		&vdiskCmdCfg.BackupStorageConfig, "input", "i",
+		"ftp server url or local dir path")
 
 	ImportVdiskCmd.Flags().BoolVarP(
 		&importVdiskCmdCfg.Force,
