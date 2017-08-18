@@ -245,29 +245,14 @@ func (ftp *ftpDriver) mkdirs(dir string) (string, error) {
 			continue // current level exists (or we at least assume it does)
 		}
 
-		// get the info about the current level (if it exists at all)
-		info, err := ftp.client.Stat(pwd)
-		// check if have to still create the current level
-		if isFTPErrorCode(ftpErrorNoExists, err) || isFTPErrorCode(ftpErrorInvalidCommand, err) {
-			// create the current (sub) directory
-			output, err := ftp.client.Mkdir(pwd)
-			if err != nil {
-				return "", err
-			}
-			// use returned path
-			// see: http://godoc.org/github.com/secsy/goftp#Client.Mkdir
-			pwd = output
-			continue
-		}
-		// if we have any other kind of error,
-		// simply quit here, as we don't know how to handle that
+		// create the current (sub) directory
+		output, err := ftp.client.Mkdir(pwd)
 		if err != nil {
-			return "", err
-		}
-		// ensure that the current (already existing) file,
-		// actually is a directory
-		if !info.IsDir() {
-			return "", errors.New(pwd + " exists and is a file, not a dir")
+			if !isFTPErrorCode(ftpErrorExists, err) {
+				return "", err // return unexpected error
+			}
+		} else {
+			pwd = output // only assign output in non-err case
 		}
 
 		ftp.knownDirs.AddDir(pwd)
@@ -339,6 +324,7 @@ const hexadecimals = "0123456789ABCDEF"
 const (
 	ftpErrorInvalidCommand = 500
 	ftpErrorNoExists       = 550
+	ftpErrorExists         = 550
 )
 
 // small util function which allows us to check if an error
