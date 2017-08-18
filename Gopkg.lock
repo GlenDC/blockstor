@@ -116,10 +116,28 @@
   version = "v1.0.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/pierrec/lz4"
+  packages = ["."]
+  revision = "5a3d2245f97fc249850e7802e3c01fad02a1c316"
+
+[[projects]]
+  name = "github.com/pierrec/xxHash"
+  packages = ["xxHash32"]
+  revision = "f051bb7f1d1aaf1b5a665d74fb6b0217712c69f7"
+  version = "v0.1.1"
+
+[[projects]]
   name = "github.com/pmezard/go-difflib"
   packages = ["difflib"]
   revision = "792786c7400a136282c1664665ae0a8db921c6c2"
   version = "v1.0.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/secsy/goftp"
+  packages = ["."]
+  revision = "503caa01c039d70e4597a23cf5c663cc1d8a53b6"
 
 [[projects]]
   branch = "master"
@@ -187,10 +205,22 @@
   revision = "5efa3251c7f7d05e5d9704a69a984ec9f1386a40"
 
 [[projects]]
+  name = "github.com/ulikunitz/xz"
+  packages = [".","internal/hash","internal/xlog","lzma"]
+  revision = "0c6b41e72360850ca4f98dc341fd999726ea007f"
+  version = "v0.5.4"
+
+[[projects]]
   branch = "master"
   name = "github.com/yuin/gopher-lua"
   packages = [".","ast","parse","pm"]
   revision = "2243d714d6c94951d8ccca8c851836ff47d401c9"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/zeebo/bencode"
+  packages = ["."]
+  revision = "03ce512f17ce5deb2c024518d504c6419f04d39d"
 
 [[projects]]
   branch = "master"
@@ -243,6 +273,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "7d7e7a52a6ab6c1a0490f159e8cfcceb01887a9f862dba73261fe0413d4395f4"
+  inputs-digest = "81012830a05dd96d01489d6dc8ec53c4ee7ad6050d9f68944510b836b0f940a6"
   solver-name = "gps-cdcl"
   solver-version = 1
