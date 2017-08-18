@@ -53,6 +53,14 @@ func TestImportExportCommute_8_64_32_DS(t *testing.T) {
 	testImportExportCommute(t, 8, 64, 32, newDedupedStorage)
 }
 
+func TestImportExportCommute_4096_131072_256_MS(t *testing.T) {
+	testImportExportCommute(t, 4096, 131072, 256, newInMemoryStorage)
+}
+
+func TestImportExportCommute_4096_131072_128_DS(t *testing.T) {
+	testImportExportCommute(t, 4096, 131072, 128, newDedupedStorage)
+}
+
 type storageGenerator func(t *testing.T, vdiskID string, blockSize int64) (storage.BlockStorage, func())
 
 func newInMemoryStorage(t *testing.T, vdiskID string, blockSize int64) (storage.BlockStorage, func()) {
