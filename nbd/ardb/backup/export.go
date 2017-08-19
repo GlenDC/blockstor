@@ -54,6 +54,7 @@ func Export(ctx context.Context, cfg Config) error {
 		CompressionType: cfg.CompressionType,
 		CryptoKey:       cfg.CryptoKey,
 		SnapshotID:      cfg.SnapshotID,
+		Force:           cfg.Force,
 	}
 
 	return exportBS(ctx, blockStorage, storageConfig.Indices, storageDriver, exportConfig)
@@ -62,7 +63,7 @@ func Export(ctx context.Context, cfg Config) error {
 func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int64, dst StorageDriver, cfg exportConfig) error {
 	// load the deduped map, or create a new one if it doesn't exist yet
 	dedupedMap, err := ExistingOrNewDedupedMap(
-		cfg.SnapshotID, dst, &cfg.CryptoKey, cfg.CompressionType)
+		cfg.SnapshotID, dst, &cfg.CryptoKey, cfg.CompressionType, cfg.Force)
 	if err != nil {
 		return err
 	}
@@ -303,6 +304,8 @@ type exportConfig struct {
 	CryptoKey       CryptoKey
 
 	SnapshotID string
+
+	Force bool
 }
 
 type blockHashPair struct {

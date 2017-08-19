@@ -44,6 +44,14 @@ type Config struct {
 	// CryptoKey to use for encryption/decryption.
 	// Note: this should be the same value for an import/export pair
 	CryptoKey CryptoKey
+
+	// Optional: Only used for exporting at the moment.
+	// When true, a new deduped map will be created in case
+	// the existing deduped map couldn't be loaded.
+	// This can happen due to the fact that the existing map's data is corrupt,
+	// or the data was encrypted/compressed using a different
+	// key/compressionType than the one given.
+	Force bool
 }
 
 // validate the export/import config,

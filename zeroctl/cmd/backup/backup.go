@@ -20,6 +20,7 @@ var vdiskCmdCfg struct {
 	PrivateKey          backup.CryptoKey       // required
 	CompressionType     backup.CompressionType // optional
 	JobCount            int                    // optional
+	Force               bool                   //optional
 }
 
 // snapshotID defaults to `<vdiskID>_epoch` if not defined

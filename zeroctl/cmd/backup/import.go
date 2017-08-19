@@ -14,12 +14,6 @@ import (
 	cmdconfig "github.com/zero-os/0-Disk/zeroctl/cmd/config"
 )
 
-// see `init` for more information
-// about the meaning of each config property.
-var importVdiskCmdCfg struct {
-	Force bool
-}
-
 // ImportVdiskCmd represents the vdisk import subcommand
 var ImportVdiskCmd = &cobra.Command{
 	Use:   "vdisk vdiskid cryptoKey",
@@ -60,6 +54,7 @@ func importVdisk(cmd *cobra.Command, args []string) error {
 		JobCount:            vdiskCmdCfg.JobCount,
 		CompressionType:     vdiskCmdCfg.CompressionType,
 		CryptoKey:           vdiskCmdCfg.PrivateKey,
+		Force:               vdiskCmdCfg.Force,
 	}
 
 	return backup.Import(ctx, cfg)
@@ -95,7 +90,7 @@ func checkVdiskExists(vdiskID string) error {
 		return fmt.Errorf("couldn't check if vdisk %s already exists: %v", vdiskID, err)
 	}
 
-	if !importVdiskCmdCfg.Force {
+	if !vdiskCmdCfg.Force {
 		return fmt.Errorf("cannot import vdisk %s as it already exists", vdiskID)
 	}
 
@@ -133,13 +128,13 @@ Remember to use the same (snapshot) name,
 crypto (private) key and the compression type,
 as you used while exporting the backup in question.
 
-If an error occured during the import process,
+  If an error occured during the import process,
 blocks might already have been written to the block storage.
 These blocks won't be deleted in case of an error,
 so note that you might end up with some "garbage" in such a scenario.
 Deleting the vdisk in such a scenario will help with this problem.
 
-The FTP information is given as the --storage flag,
+  The FTP information is given as the --storage flag,
 here are some examples of valid values for that flag:
 	+ localhost:22
 	+ ftp://1.2.3.4:200
@@ -173,7 +168,7 @@ This is also the default in case the --storage flag is not specified.
 		"ftp server url or local dir path to import the backup from")
 
 	ImportVdiskCmd.Flags().BoolVarP(
-		&importVdiskCmdCfg.Force,
+		&vdiskCmdCfg.Force,
 		"force", "f", false,
 		"when given, delete the vdisk if it already existed")
 }

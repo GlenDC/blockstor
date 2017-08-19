@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/zero-os/0-Disk"
+	"github.com/zero-os/0-Disk/log"
 
 	"github.com/zeebo/bencode"
 )
@@ -37,7 +38,10 @@ func LoadDedupedMap(id string, src StorageDriver, key *CryptoKey, ct Compression
 // ExistingOrNewDedupedMap tries to first fetch an existing deduped map from a given server,
 // if it doesn't exist yet, a new one will be created in-memory instead.
 // If it did exist already, it will be decrypted, decompressed and loaded in-memory as a DedupedMap.
-func ExistingOrNewDedupedMap(id string, src StorageDriver, key *CryptoKey, ct CompressionType) (*DedupedMap, error) {
+// When `force` is `true`, a new map will be created, even if one existed already but couldn't be loaded.
+// When `force` is `false`, and a map exists but can't be a loaded,
+// the error of why it couldn't be loaded, is returned instead.
+func ExistingOrNewDedupedMap(id string, src StorageDriver, key *CryptoKey, ct CompressionType, force bool) (*DedupedMap, error) {
 	buf := bytes.NewBuffer(nil)
 	err := src.GetDedupedMap(id, buf)
 
@@ -46,13 +50,39 @@ func ExistingOrNewDedupedMap(id string, src StorageDriver, key *CryptoKey, ct Co
 		return NewDedupedMap(), nil
 	}
 	if err != nil {
+		// deduped map did exist, but we couldn't load it.
+		if force {
+			// we forcefully create a new one anyhow if `force == true`
+			log.Debugf(
+				"couldn't read deduped map '%s' due to an error (%s), forcefully creating a new one",
+				id, err)
+			return NewDedupedMap(), nil
+		}
 		// deduped map did exist,
 		// but an unknown error was triggered while fetching it
 		return nil, err
 	}
 
 	// try to load the existing deduped map in memory
-	return DeserializeDedupedMap(key, ct, buf)
+	dm, err := DeserializeDedupedMap(key, ct, buf)
+	if err != nil {
+		// deduped map did exist, but we couldn't deserialize it.
+		// This could for example happen in case the given encryption key is false,
+		// or the compression algorithm doesn't match with the one used during serialization.
+
+		// However, when `force` is given, we'll ignore this err and return a new deduped map instead.
+		if force {
+			log.Debugf(
+				"couldn't deserialize deduped map '%s' due to an error (%s), forcefully creating a new one",
+				id, err)
+			return NewDedupedMap(), nil
+		}
+
+		return nil, err
+	}
+
+	log.Debugf("loaded and deserialized existing deduped map %s", id)
+	return dm, err
 }
 
 // DeserializeDedupedMap allows you to deserialize a deduped map from a given reader.
@@ -78,7 +108,7 @@ func DeserializeDedupedMap(key *CryptoKey, ct CompressionType, src io.Reader) (*
 	}
 	err = decompressor.Decompress(bufA, bufB)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't (LZ4) decompress deduped map: %v", err)
+		return nil, fmt.Errorf("couldn't decompress deduped map: %v", err)
 	}
 
 	hashes, err := deserializeHashes(bufB)
@@ -136,7 +166,7 @@ func (dm *DedupedMap) Serialize(key *CryptoKey, ct CompressionType, dst io.Write
 	imbuffer := bytes.NewBuffer(nil)
 	err = compressor.Compress(hmbuffer, imbuffer)
 	if err != nil {
-		return fmt.Errorf("couldn't (lz4) compress bencoded dedupd map: %v", err)
+		return fmt.Errorf("couldn't compress bencoded dedupd map: %v", err)
 	}
 
 	err = Encrypt(key, imbuffer, dst)

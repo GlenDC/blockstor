@@ -47,6 +47,7 @@ func exportVdisk(cmd *cobra.Command, args []string) error {
 		JobCount:            vdiskCmdCfg.JobCount,
 		CompressionType:     vdiskCmdCfg.CompressionType,
 		CryptoKey:           vdiskCmdCfg.PrivateKey,
+		Force:               vdiskCmdCfg.Force,
 	}
 
 	err = backup.Export(ctx, cfg)
@@ -65,12 +66,12 @@ Remember to keep note of the used (snapshot) name,
 crypto (private) key and the compression type,
 as you will need the same information when importing the exported backup.
 
-If an error occured during the export process,
+  If an error occured during the export process,
 deduped blocks might already have been written to the FTP server.
 These blocks won't be deleted in case of an error,
 so note that you might end up with some "garbage" in such a scenario.
 
-The FTP information is given using the --storage flag,
+  The FTP information is given using the --storage flag,
 here are some examples of valid values for that flag:
 	+ localhost:22
 	+ ftp://1.2.3.4:200
@@ -80,6 +81,11 @@ here are some examples of valid values for that flag:
 Alternatively you can also give a local directory path to the --storage flag,
 to backup to the local file system instead.
 This is also the default in case the --storage flag is not specified.
+
+  When the --force flag is given,
+a deduped map will be overwritten if it already existed,
+AND if it couldn't be loaded, due to being corrupt or encrypted/compressed,
+using a different private key or compression type, than the one(s) used right now.
 `
 
 	ExportVdiskCmd.Flags().Var(
@@ -102,4 +108,9 @@ This is also the default in case the --storage flag is not specified.
 	ExportVdiskCmd.Flags().VarP(
 		&vdiskCmdCfg.BackupStorageConfig, "storage", "s",
 		"ftp server url or local dir path to export the backup to")
+
+	ExportVdiskCmd.Flags().BoolVarP(
+		&vdiskCmdCfg.Force,
+		"force", "f", false,
+		"when given, overwrite a deduped map if it can't be loaded")
 }
