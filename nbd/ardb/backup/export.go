@@ -72,7 +72,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	inputCh := make(chan blockHashPair, cfg.JobCount*2) // gets closed by fetcher goroutine
+	inputCh := make(chan blockIndexPair, cfg.JobCount*2) // gets closed by fetcher goroutine
 
 	errCh := make(chan error)
 	defer close(errCh)
@@ -133,9 +133,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 			err = nil
 		}()
 
-		var blockHasChanged bool
-		var hash zerodisk.Hash
-		var pair *blockIndexPair
+		var inPair *blockIndexPair
 
 		// keep fetching blocks,
 		// until we received an error,
@@ -147,7 +145,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 
 			default:
 				// fetch the next available block
-				pair, err = bf.FetchBlock()
+				inPair, err = bf.FetchBlock()
 				if err != nil {
 					if err == io.EOF {
 						err = nil
@@ -157,22 +155,10 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 					return
 				}
 
-				hash = zerodisk.HashBytes(pair.Block)
-				blockHasChanged = dedupedMap.SetHash(pair.Index, hash)
-				if !blockHasChanged {
-					log.Debugf("block %d already existed, so skipping its serialization", pair.Index)
-					continue // no need to serialize the block itself
-					// as it already existed
-				}
-
-				pair := blockHashPair{
-					Block: pair.Block,
-					Hash:  hash,
-				}
 				select {
 				case <-ctx.Done():
 					return
-				case inputCh <- pair:
+				case inputCh <- *inPair:
 				}
 			}
 		}
@@ -194,6 +180,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 			Compressor:    compressor,
 			Encrypter:     encrypter,
 			StorageDriver: dst,
+			DedupedMap:    dedupedMap,
 		}
 
 		// launch worker
@@ -211,7 +198,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 				log.Debugf("stopping export worker #%d", id)
 			}()
 
-			var pair blockHashPair
+			var input blockIndexPair
 			var open bool
 
 			for {
@@ -219,12 +206,12 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 				case <-ctx.Done():
 					return
 
-				case pair, open = <-inputCh:
+				case input, open = <-inputCh:
 					if !open {
 						return
 					}
 
-					err = pipeline.WriteBlock(pair.Hash, pair.Block)
+					err = pipeline.WriteBlock(input.Index, input.Block)
 					if err != nil {
 						sendErr(fmt.Errorf("error while processing block: %v", err))
 						return
@@ -308,19 +295,15 @@ type exportConfig struct {
 	Force bool
 }
 
-type blockHashPair struct {
-	Hash  zerodisk.Hash
-	Block []byte
-}
-
 // compress -> encrypt -> store
 type exportPipeline struct {
 	Compressor    Compressor
 	Encrypter     Encrypter
 	StorageDriver StorageDriver
+	DedupedMap    *DedupedMap
 }
 
-func (p *exportPipeline) WriteBlock(hash zerodisk.Hash, data []byte) error {
+func (p *exportPipeline) WriteBlock(index int64, data []byte) error {
 	bufA := bytes.NewBuffer(data)
 	bufB := bytes.NewBuffer(nil)
 
@@ -333,6 +316,14 @@ func (p *exportPipeline) WriteBlock(hash zerodisk.Hash, data []byte) error {
 	err = p.Encrypter.Encrypt(bufB, bufA)
 	if err != nil {
 		return err
+	}
+
+	hash := zerodisk.HashBytes(bufA.Bytes())
+	if p.DedupedMap != nil {
+		blockIsNew := p.DedupedMap.SetHash(index, hash)
+		if !blockIsNew {
+			return nil // we're done here
+		}
 	}
 
 	return p.StorageDriver.SetDedupedBlock(hash, bufA)

@@ -117,6 +117,7 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 			StorageDriver: src,
 			Decrypter:     decrypter,
 			Decompressor:  decompressor,
+			DedupedMap:    dedupedMap,
 		}
 
 		// launch worker
@@ -148,16 +149,9 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 					}
 
 					// read, decrypt and decompress the input block hash
-					block, err = pipeline.ReadBlock(input.BlockHash)
+					block, err = pipeline.ReadBlock(input.BlockIndex, input.BlockHash)
 					if err != nil {
 						sendErr(err)
-						return
-					}
-
-					// check if the content matches the hash
-					hash := zerodisk.HashBytes(block)
-					if !input.BlockHash.Equals(hash) {
-						sendErr(fmt.Errorf("block %d's hash does not match its content", input.BlockIndex))
 						return
 					}
 
@@ -361,13 +355,26 @@ type importPipeline struct {
 	StorageDriver StorageDriver
 	Decrypter     Decrypter
 	Decompressor  Decompressor
+	DedupedMap    *DedupedMap
 }
 
-func (p *importPipeline) ReadBlock(hash zerodisk.Hash) ([]byte, error) {
+func (p *importPipeline) ReadBlock(index int64, hash zerodisk.Hash) ([]byte, error) {
 	bufA := bytes.NewBuffer(nil)
 	err := p.StorageDriver.GetDedupedBlock(hash, bufA)
 	if err != nil {
 		return nil, err
+	}
+
+	if p.DedupedMap != nil {
+		expectedHash, ok := p.DedupedMap.GetHash(index)
+		if !ok {
+			return nil, errInvalidBlockIndex
+		}
+
+		hash := zerodisk.HashBytes(bufA.Bytes())
+		if !expectedHash.Equals(hash) {
+			return nil, fmt.Errorf("block %d's hash does not match its content", index)
+		}
 	}
 
 	bufB := bytes.NewBuffer(nil)
@@ -498,5 +505,6 @@ func (sbf *streamBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 }
 
 var (
-	errStreamBlocked = errors.New("stream block fetcher is blocked waiting for next expected block")
+	errStreamBlocked     = errors.New("stream block fetcher is blocked waiting for next expected block")
+	errInvalidBlockIndex = errors.New("block index could not be found in deduped map")
 )

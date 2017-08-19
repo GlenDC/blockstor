@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/zero-os/0-Disk"
 	"github.com/zero-os/0-Disk/log"
@@ -104,7 +105,7 @@ func DeserializeDedupedMap(key *CryptoKey, ct CompressionType, src io.Reader) (*
 
 	err = Decrypt(key, src, bufA)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't (AES256_GCM) decrypt compressed deduped map: %v", err)
+		return nil, fmt.Errorf("couldn't decrypt compressed deduped map: %v", err)
 	}
 	err = decompressor.Decompress(bufA, bufB)
 	if err != nil {
@@ -125,6 +126,7 @@ func DeserializeDedupedMap(key *CryptoKey, ct CompressionType, src io.Reader) (*
 //       and should only be used on one goroutine at a time.
 type DedupedMap struct {
 	hashes map[int64]zerodisk.Hash
+	mux    sync.Mutex
 }
 
 // SetHash sets the given hash, mapped to the given (export block) index.
@@ -132,6 +134,9 @@ type DedupedMap struct {
 // and the hash equals the given hash, the given hash won't be used and `false` wil be returned.
 // Otherwise the given hash is mapped to the given index and `true`` will be returned.
 func (dm *DedupedMap) SetHash(index int64, hash zerodisk.Hash) bool {
+	dm.mux.Lock()
+	defer dm.mux.Unlock()
+
 	if h, found := dm.hashes[index]; found && h.Equals(hash) {
 		return false
 	}
@@ -143,6 +148,9 @@ func (dm *DedupedMap) SetHash(index int64, hash zerodisk.Hash) bool {
 // GetHash returns the hash which is mapped to the given (export block) index.
 // `false` is returned in case no hash is mapped to the given (export block) index.
 func (dm *DedupedMap) GetHash(index int64) (zerodisk.Hash, bool) {
+	dm.mux.Lock()
+	defer dm.mux.Unlock()
+
 	hash, found := dm.hashes[index]
 	return hash, found
 }
@@ -152,6 +160,9 @@ func (dm *DedupedMap) GetHash(index int64) (zerodisk.Hash, bool) {
 // writen to the given writer.
 // You can re-load this map in memory using the `DeserializeDedupedMap` function.
 func (dm *DedupedMap) Serialize(key *CryptoKey, ct CompressionType, dst io.Writer) error {
+	dm.mux.Lock()
+	defer dm.mux.Unlock()
+
 	compressor, err := NewCompressor(ct)
 	if err != nil {
 		return err
@@ -171,7 +182,7 @@ func (dm *DedupedMap) Serialize(key *CryptoKey, ct CompressionType, dst io.Write
 
 	err = Encrypt(key, imbuffer, dst)
 	if err != nil {
-		return fmt.Errorf("couldn't (AES256_GCM) encrypt compressed dedupd map: %v", err)
+		return fmt.Errorf("couldn't encrypt compressed dedupd map: %v", err)
 	}
 
 	return nil
