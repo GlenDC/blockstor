@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 
@@ -16,7 +17,7 @@ import (
 
 // ImportVdiskCmd represents the vdisk import subcommand
 var ImportVdiskCmd = &cobra.Command{
-	Use:   "vdisk vdiskid cryptoKey",
+	Use:   "vdisk vdiskid cryptoKey snapshotID",
 	Short: "import a vdisk",
 	RunE:  importVdisk,
 }
@@ -29,7 +30,7 @@ func importVdisk(cmd *cobra.Command, args []string) error {
 	log.SetLevel(logLevel)
 
 	// parse the position arguments
-	err := parsePosArguments(args)
+	err := parseImportPosArguments(args)
 	if err != nil {
 		return err
 	}
@@ -39,15 +40,12 @@ func importVdisk(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// set snapshot id if it wasn't defined yet
-	snapshotID := snapshotID(vdiskCmdCfg.SnapshotID, vdiskCmdCfg.VdiskID)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	cfg := backup.Config{
 		VdiskID:             vdiskCmdCfg.VdiskID,
-		SnapshotID:          snapshotID,
+		SnapshotID:          vdiskCmdCfg.SnapshotID,
 		BlockSize:           vdiskCmdCfg.ExportBlockSize,
 		BlockStorageConfig:  vdiskCmdCfg.SourceConfig,
 		BackupStorageConfig: vdiskCmdCfg.BackupStorageConfig,
@@ -121,6 +119,21 @@ func checkVdiskExists(vdiskID string) error {
 	return nil
 }
 
+func parseImportPosArguments(args []string) error {
+	// validate pos arg length
+	argn := len(args)
+	if argn < 3 {
+		return errors.New("not enough arguments")
+	} else if argn > 3 {
+		return errors.New("too many arguments")
+	}
+
+	vdiskCmdCfg.VdiskID = args[0]
+	vdiskCmdCfg.SnapshotID = args[2]
+
+	return vdiskCmdCfg.PrivateKey.Set(args[1])
+}
+
 func init() {
 	ImportVdiskCmd.Long = ImportVdiskCmd.Short + `
 
@@ -150,9 +163,6 @@ This is also the default in case the --storage flag is not specified.
 		&vdiskCmdCfg.SourceConfig, "config",
 		"config resource: dialstrings (etcd cluster) or path (yaml file)")
 
-	ImportVdiskCmd.Flags().StringVar(
-		&vdiskCmdCfg.SnapshotID, "name", "",
-		"the name of the backup (default `<vdiskID>_epoch`)")
 	ImportVdiskCmd.Flags().Int64VarP(
 		&vdiskCmdCfg.ExportBlockSize, "blocksize", "b", backup.DefaultBlockSize,
 		"the size of the exported (deduped) blocks")

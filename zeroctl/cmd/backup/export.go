@@ -2,8 +2,10 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/zero-os/0-Disk/log"
@@ -14,7 +16,7 @@ import (
 
 // ExportVdiskCmd represents the vdisk export subcommand
 var ExportVdiskCmd = &cobra.Command{
-	Use:   "vdisk vdiskid cryptoKey",
+	Use:   "vdisk vdiskid cryptoKey [snapshotID]",
 	Short: "export a vdisk",
 	RunE:  exportVdisk,
 }
@@ -27,20 +29,17 @@ func exportVdisk(cmd *cobra.Command, args []string) error {
 	log.SetLevel(logLevel)
 
 	// parse the position arguments
-	err := parsePosArguments(args)
+	err := parseExportPosArguments(args)
 	if err != nil {
 		return err
 	}
-
-	// set snapshot id if it wasn't defined yet
-	snapshotID := snapshotID(vdiskCmdCfg.SnapshotID, vdiskCmdCfg.VdiskID)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	cfg := backup.Config{
 		VdiskID:             vdiskCmdCfg.VdiskID,
-		SnapshotID:          snapshotID,
+		SnapshotID:          vdiskCmdCfg.SnapshotID,
 		BlockSize:           vdiskCmdCfg.ExportBlockSize,
 		BlockStorageConfig:  vdiskCmdCfg.SourceConfig,
 		BackupStorageConfig: vdiskCmdCfg.BackupStorageConfig,
@@ -55,8 +54,28 @@ func exportVdisk(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println(snapshotID)
+	fmt.Println(vdiskCmdCfg.SnapshotID)
 	return nil
+}
+
+func parseExportPosArguments(args []string) error {
+	// validate pos arg length
+	argn := len(args)
+	if argn < 2 {
+		return errors.New("not enough arguments")
+	} else if argn > 3 {
+		return errors.New("too many arguments")
+	}
+
+	vdiskCmdCfg.VdiskID = args[0]
+	if argn == 3 {
+		vdiskCmdCfg.SnapshotID = args[2]
+	} else {
+		epoch := time.Now().UTC().Unix()
+		vdiskCmdCfg.SnapshotID = fmt.Sprintf("%s_%d", vdiskCmdCfg.VdiskID, epoch)
+	}
+
+	return vdiskCmdCfg.PrivateKey.Set(args[1])
 }
 
 func init() {
@@ -70,6 +89,11 @@ as you will need the same information when importing the exported backup.
 deduped blocks might already have been written to the FTP server.
 These blocks won't be deleted in case of an error,
 so note that you might end up with some "garbage" in such a scenario.
+
+  If the snapshotID is not given,
+one will be generated automatically using the "<vdiskID>_epoch" format.
+The used snapshotID will be printed in the STDOUT in case
+no (fatal) error occured, at the end of the command's lifetime.
 
   The FTP information is given using the --storage flag,
 here are some examples of valid values for that flag:
@@ -92,9 +116,6 @@ using a different private key or compression type, than the one(s) used right no
 		&vdiskCmdCfg.SourceConfig, "config",
 		"config resource: dialstrings (etcd cluster) or path (yaml file)")
 
-	ExportVdiskCmd.Flags().StringVar(
-		&vdiskCmdCfg.SnapshotID, "name", "",
-		"the name of the backup (default `<vdiskID>_epoch`)")
 	ExportVdiskCmd.Flags().Int64VarP(
 		&vdiskCmdCfg.ExportBlockSize, "blocksize", "b", backup.DefaultBlockSize,
 		"the size of the exported (deduped) blocks")
