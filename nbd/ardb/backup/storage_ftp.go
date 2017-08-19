@@ -39,7 +39,7 @@ func NewFTPStorageConfig(data string) (cfg FTPStorageConfig, err error) {
 	// set address
 	cfg.Address = parts[3] + parts[4]
 	if parts[4] == "" {
-		cfg.Address += ":22"
+		cfg.Address += ":21" // port 21 by defualt
 	}
 
 	cfg.RootDir = parts[5]
@@ -70,15 +70,17 @@ func (cfg *FTPStorageConfig) String() string {
 		return "" // invalid config
 	}
 
+	address := strings.TrimPrefix(cfg.Address, "ftp://")
+
 	url := "ftp://"
 	if cfg.Username != "" {
 		url += cfg.Username
 		if cfg.Password != "" {
 			url += ":" + cfg.Password
 		}
-		url += "@" + cfg.Address
+		url += "@" + address
 	} else {
-		url += cfg.Address
+		url += address
 	}
 
 	if cfg.RootDir != "" {
@@ -141,7 +143,8 @@ func FTPStorageDriver(cfg FTPStorageConfig) (StorageDriver, error) {
 		Logger:             newFTPLogger(cfg.Address),
 	}
 
-	client, err := goftp.DialConfig(config, cfg.Address)
+	address := strings.TrimPrefix(cfg.Address, "ftp://")
+	client, err := goftp.DialConfig(config, address)
 	if err != nil {
 		return nil, err
 	}

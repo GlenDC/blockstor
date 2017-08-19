@@ -94,6 +94,10 @@ func (cfg *StorageConfig) String() string {
 		return defaultLocalRoot
 	}
 
+	if cfg.validate() != nil {
+		return ""
+	}
+
 	// if local config,
 	// use default root if no resource (see: rootdir) specified,
 	// otherwise simply return the specified path.
@@ -105,15 +109,8 @@ func (cfg *StorageConfig) String() string {
 		return path
 	}
 
-	if cfg.StorageType != FTPStorageType {
-		return ""
-	}
-
-	// try to cast the resource to an FTP Storage Config
-	ftpConfig, ok := cfg.Resource.(FTPStorageConfig)
-	if !ok {
-		return ""
-	}
+	// must be an FTP Storage Config, as the config is valid
+	ftpConfig, _ := cfg.Resource.(FTPStorageConfig)
 	// and return the ftp config as a string
 	return ftpConfig.String()
 }
@@ -147,31 +144,29 @@ const (
 )
 
 const (
-	localStorageType = "local"
-	ftpStorageType   = "ftp"
+	localStorageTypeStr = "local"
+	ftpStorageTypeStr   = "ftp"
 )
 
 // String returns the name of the Config Source Type
 func (st StorageType) String() string {
-	if st == LocalStorageType {
-		return localStorageType
+	switch st {
+	case LocalStorageType:
+		return localStorageTypeStr
+	case FTPStorageType:
+		return ftpStorageTypeStr
+	default:
+		return ""
 	}
-
-	// default to FTP
-	return ftpStorageType
 }
 
 // Set allows you to set this Storage Type
 // using a raw string. Options: {ftp, local}
 func (st *StorageType) Set(str string) error {
-	if str == "" {
-		return errors.New("no string was given")
-	}
-
 	switch strings.ToLower(str) {
-	case localStorageType:
+	case localStorageTypeStr:
 		*st = LocalStorageType
-	case ftpStorageType:
+	case ftpStorageTypeStr:
 		*st = FTPStorageType
 	default:
 		return errors.New(str + " is not a valid storage type")

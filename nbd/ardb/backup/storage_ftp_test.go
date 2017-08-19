@@ -13,8 +13,8 @@ func TestMinimalFTPStorageConfigToString(t *testing.T) {
 	validCases := []struct {
 		Input, Output string
 	}{
-		{"foo", "ftp://foo:22"},
-		{"foo/bar/baz", "ftp://foo:22/bar/baz"},
+		{"foo", "ftp://foo:21"},
+		{"foo/bar/baz", "ftp://foo:21/bar/baz"},
 		{"foo:22", "ftp://foo:22"},
 	}
 

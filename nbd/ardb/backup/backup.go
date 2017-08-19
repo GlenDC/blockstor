@@ -324,7 +324,9 @@ func createBlockStorage(vdiskID string, sourceConfig config.SourceConfig, listIn
 	if listIndices {
 		indices, err = storage.ListBlockIndices(vdiskID, vdiskConfig.Type, &nbdStorageConfig.StorageCluster)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf(
+				"couldn't list block (storage) indices: %v (does vdisk '%s' exist?)",
+				err, vdiskID)
 		}
 	}
 
