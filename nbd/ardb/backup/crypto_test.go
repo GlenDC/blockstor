@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	mrand "math/rand"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCryptoAES(t *testing.T) {
@@ -151,6 +153,32 @@ func benchmarkCrypto(b *testing.B, size int64, encrypter Encrypter, decrypter De
 				"decrypted package was expected to be %v, while received %v",
 				in, result)
 			continue
+		}
+	}
+}
+
+func TestCryptoKeyStringFunctions(t *testing.T) {
+	assert := assert.New(t)
+
+	// nil-keys equal to empty strings
+	var nk CryptoKey
+	assert.Empty(nk.String())
+	var npk *CryptoKey
+	assert.Empty(npk.String())
+
+	// setting an invalid key cannot be done
+	assert.Error(nk.Set(""))
+
+	// setting correct keys should be fine
+	for i := 0; i < 16; i++ {
+		src := make([]byte, CryptoKeySize)
+		rand.Read(src)
+
+		str := string(src)
+		var key CryptoKey
+
+		if assert.NoError(key.Set(str)) {
+			assert.Equal(str, key.String())
 		}
 	}
 }

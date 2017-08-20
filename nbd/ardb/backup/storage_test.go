@@ -43,3 +43,19 @@ func bytesToString(bs []byte) (str string) {
 	}
 	return
 }
+
+func TestDirCache(t *testing.T) {
+	assert := assert.New(t)
+
+	dc := newDirCache()
+	if !assert.NotNil(dc) {
+		return
+	}
+
+	assert.False(dc.CheckDir("foo"))
+	dc.AddDir("foo")
+	assert.True(dc.CheckDir("foo"))
+	assert.False(dc.CheckDir("bar"))
+	dc.AddDir("bar")
+	assert.True(dc.CheckDir("bar"))
+}

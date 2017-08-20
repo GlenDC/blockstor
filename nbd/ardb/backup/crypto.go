@@ -135,7 +135,7 @@ type CryptoKey [CryptoKeySize]byte
 
 // String implements Value.String
 func (key *CryptoKey) String() string {
-	if key == nil {
+	if key.validate() != nil {
 		return ""
 	}
 	return string(key[:])
@@ -143,35 +143,34 @@ func (key *CryptoKey) String() string {
 
 // Set implements Value.Set
 func (key *CryptoKey) Set(value string) error {
-	if key == nil {
-		return errors.New("nil crypto key cannot be set")
+	if err := validateCryptoKey([]byte(value)); err != nil {
+		return err
 	}
-
-	if len(value) != CryptoKeySize {
-		return errors.New("wrong crypto key size")
-	}
-
 	copy(key[:], value)
 	return nil
 }
 
 // Type implements PValue.Type
 func (key *CryptoKey) Type() string {
-	if key == nil {
-		return "nil"
-	}
-
 	return "AESCryptoKey"
 }
 
 func (key *CryptoKey) validate() error {
-	if key != nil {
-		for _, b := range *key {
+	if key == nil {
+		return errors.New("nil crypto key")
+	}
+
+	return validateCryptoKey(key[:])
+}
+
+func validateCryptoKey(key []byte) error {
+	if key != nil && len(key) == CryptoKeySize {
+		for _, b := range key {
 			if b != 0 {
 				return nil
 			}
 		}
 	}
 
-	return errors.New("nil crypto key is not allowed")
+	return errors.New("invalid crypto key")
 }
