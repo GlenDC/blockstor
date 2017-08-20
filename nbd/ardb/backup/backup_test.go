@@ -80,6 +80,107 @@ func testInflationBlockFetcher(t *testing.T, srcBS, dstBS int64) {
 	}
 }
 
+func TestInflationBlockFetcherSlice_s2_d8_o1_i0(t *testing.T) {
+	testInflationBlockFetcherSlice(t, 2, 8, 1, 0)
+}
+
+func TestInflationBlockFetcherSlice_s2_d8_o1_i3(t *testing.T) {
+	testInflationBlockFetcherSlice(t, 2, 8, 1, 3)
+}
+
+func TestInflationBlockFetcherSlice_s2_d8_o4_i9(t *testing.T) {
+	testInflationBlockFetcherSlice(t, 2, 8, 4, 9)
+}
+
+func TestInflationBlockFetcherSlice_s2_d8_o4_i19(t *testing.T) {
+	testInflationBlockFetcherSlice(t, 2, 8, 4, 19)
+}
+
+func TestInflationBlockFetcherSlice_s2_d8_o3_i0(t *testing.T) {
+	testInflationBlockFetcherSlice(t, 2, 8, 3, 0)
+}
+
+func TestInflationBlockFetcherSlice_s4096_d131072_o512_i1024(t *testing.T) {
+	testInflationBlockFetcherSlice(t, 4096, 131072, 512, 1024)
+}
+
+func TestInflationBlockFetcherSlice_s4096_d131072_o3333_i6144(t *testing.T) {
+	testInflationBlockFetcherSlice(t, 4096, 131072, 3333, 6144)
+}
+
+func testInflationBlockFetcherSlice(t *testing.T, srcBS, dstBS, offset, interval int64) {
+	assert := assert.New(t)
+	if !assert.True(dstBS > srcBS) {
+		return
+	}
+
+	// create stub and fetcher to use (later)
+	stub := new(stubBlockFetcher)
+	fetcher := newInflationBlockFetcher(stub, srcBS, dstBS)
+
+	const (
+		// there are more source blocks
+		// but these are the blocks we'll fill with data
+		srcBlockCount = 32
+	)
+
+	// generate destData
+	totalDestSize := offset + (srcBS+interval)*srcBlockCount - interval
+	totalDestSize += dstBS - (totalDestSize % dstBS)
+	destData := make([]byte, totalDestSize)
+	destBlockCount := totalDestSize / dstBS
+
+	// functions should work (see: not panic)
+	// even though we reached EOF
+	_, err := fetcher.FetchBlock()
+	assert.Equal(io.EOF, err)
+
+	// generate all filled data blocks, and add them to the destination block
+	for i := int64(0); i < srcBlockCount; i++ {
+		data := generateSequentialDataBlock(i*srcBS, srcBS)
+		di := i*(srcBS+interval) + offset
+		copy(destData[di:], data)
+	}
+
+	// add all non-nil blocks to stub block fetcher
+	for i := int64(0); i < totalDestSize; i += srcBS {
+		block := destData[i : i+srcBS]
+		if !isNilBlock(block) {
+			si := i / srcBS
+			stub.AddBlock(si, block)
+		}
+	}
+
+	// fetch all destination blocks, now that data is ready
+	for i := int64(0); i < destBlockCount; i++ {
+		start := i * dstBS
+		end := start + dstBS
+		block := destData[start:end]
+
+		if isNilBlock(block) {
+			continue
+		}
+
+		pair, err := fetcher.FetchBlock()
+		if !assert.NoError(err) {
+			continue
+		}
+
+		if !assert.Equal(i, pair.Index) {
+			continue
+		}
+		assert.Equalf(block, pair.Block, "index: %v", i)
+	}
+}
+
+func generateSequentialDataBlock(pos, size int64) []byte {
+	data := make([]byte, size)
+	for i := int64(0); i < size; i++ {
+		data[i] = byte((pos + i) % 255)
+	}
+	return data
+}
+
 func generateInflationDataPair(srcSize, dstSize, dstOffset int64) ([]byte, []byte) {
 	input := make([]byte, srcSize)
 	rand.Read(input)
@@ -118,6 +219,14 @@ func TestDeflationBlockFetcher_8_to_4_with_i1_and_o1(t *testing.T) {
 	testDeflationBlockFetcher(t, 8, 4, 1, 1)
 }
 
+func TestDeflationBlockFetcher_8_to_4_with_i2_and_o9(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 4, 2, 9)
+}
+
+func TestDeflationBlockFetcher_8_to_4_with_i4_and_o14(t *testing.T) {
+	testDeflationBlockFetcher(t, 8, 4, 4, 14)
+}
+
 func TestDeflationBlockFetcher_8_to_4_with_i1_and_o4(t *testing.T) {
 	testDeflationBlockFetcher(t, 8, 4, 1, 4)
 }
@@ -132,6 +241,14 @@ func TestDeflationBlockFetcher_8_to_4_with_i2_and_o0(t *testing.T) {
 
 func TestDeflationBlockFetcher_16_to_2_with_i1_and_o0(t *testing.T) {
 	testDeflationBlockFetcher(t, 16, 2, 1, 0)
+}
+
+func TestDeflationBlockFetcher_4096_to_512_with_i0_and_o0(t *testing.T) {
+	testDeflationBlockFetcher(t, 4096, 512, 0, 0)
+}
+
+func TestDeflationBlockFetcher_4096_to_512_with_i333_and_o512(t *testing.T) {
+	testDeflationBlockFetcher(t, 4096, 512, 333, 512)
 }
 
 func testDeflationBlockFetcher(t *testing.T, srcBS, dstBS, interval, offset int64) {
@@ -249,11 +366,6 @@ func (sbf *stubBlockFetcher) AddBlock(index int64, block []byte) {
 // FetchBlock implements blockFetcher.FetchBlock
 func (sbf *stubBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 	if len(sbf.Indices) < 0 || len(sbf.Blocks) == 0 {
-		return nil, io.EOF
-	}
-
-	if sbf.Indices[0] < 0 {
-		sbf.Indices, sbf.Blocks = sbf.Indices[1:], sbf.Blocks[1:]
 		return nil, io.EOF
 	}
 

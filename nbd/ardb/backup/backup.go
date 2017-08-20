@@ -176,17 +176,7 @@ func (ibf *inflationBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 			return nil, err
 		}
 
-		// create output
-		ibf.cache.output = make([]byte, ibf.dstBS)
-
-		// ensure that we start at the correct local offset
-		ibf.cache.offset = (blockPair.Index % ibf.ratio) * ibf.srcBS
-		// store the prevIndex, so we can use it for the next cycles
-		ibf.cache.prevIndex = blockPair.Index
-
-		// copy the fetched block into our final destination block
-		copy(ibf.cache.output[ibf.cache.offset:ibf.cache.offset+ibf.srcBS], blockPair.Block)
-		ibf.cache.offset += ibf.srcBS
+		ibf.newOutputBlock(blockPair)
 	}
 
 	// try to fill up the (bigger) destination block as much as possible
@@ -214,7 +204,8 @@ func (ibf *inflationBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 					Block: ibf.cache.output,
 					Index: ibf.cache.prevIndex / ibf.ratio,
 				}
-				ibf.cache.output = nil
+
+				ibf.newOutputBlock(blockPair)
 				return pair, nil
 			}
 		}
@@ -234,6 +225,20 @@ func (ibf *inflationBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 	}
 	ibf.cache.output = nil
 	return pair, nil
+}
+
+func (ibf *inflationBlockFetcher) newOutputBlock(pair *blockIndexPair) {
+	// create output
+	ibf.cache.output = make([]byte, ibf.dstBS)
+
+	// ensure that we start at the correct local offset
+	ibf.cache.offset = (pair.Index % ibf.ratio) * ibf.srcBS
+	// store the prevIndex, so we can use it for the next cycles
+	ibf.cache.prevIndex = pair.Index
+
+	// copy the fetched block into our final destination block
+	copy(ibf.cache.output[ibf.cache.offset:ibf.cache.offset+ibf.srcBS], pair.Block)
+	ibf.cache.offset += ibf.srcBS
 }
 
 // newDeflationBlockFetcher creates a new Deflation BlockFetcher,
