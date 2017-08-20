@@ -74,8 +74,9 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	inputCh := make(chan importInput, cfg.JobCount)   // gets closed by fetcher goroutine
-	outputCh := make(chan importOutput, cfg.JobCount) // gets closed when all blocks have been fetched and processed
+	inputCh := make(chan importInput, cfg.JobCount)    // gets closed by fetcher goroutine
+	glueCh := make(chan importOutput, cfg.JobCount)    // gets closed when all blocks have been fetched and sent for storage
+	storeCh := make(chan blockIndexPair, cfg.JobCount) // gets closed when all blocks when been stored
 
 	errCh := make(chan error)
 	defer close(errCh)
@@ -163,27 +164,59 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 					select {
 					case <-ctx.Done():
 						return
-					case outputCh <- output:
+					case glueCh <- output:
 					}
 				}
 			}
 		}(i)
 	}
 
-	// launch output goroutine
-	owg.Add(1)
-	go func() {
-		defer owg.Done()
+	// launch storage goroutines
+	owg.Add(cfg.JobCount)
+	for i := 0; i < cfg.JobCount; i++ {
+		go func(id int64) {
+			log.Debug("starting importer's output worker #", id)
+			defer log.Debug("stopping importer's output worker #", id)
+			defer owg.Done()
 
-		log.Debug("starting importer's output goroutine")
+			var err error
+			var open bool
+			var input blockIndexPair
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+
+				case input, open = <-storeCh:
+					if !open {
+						return
+					}
+
+					// store block,
+					// which has been potentially sliced to fit the storage's block size
+					err = dst.SetBlock(input.Index, input.Block)
+					if err != nil {
+						sendErr(err)
+						return
+					}
+				}
+			}
+		}(int64(i))
+	}
+
+	// launch glue goroutine
+	go func() {
+		log.Debug("starting importer's glue (fetch) goroutine")
+		defer close(storeCh)
 
 		var err error
 		defer func() {
 			if err != nil {
-				log.Debugf("stopping importer's output goroutine with error: %v", err)
+				log.Debugf("stopping importer's glue (fetch) goroutine with error: %v", err)
 				return
 			}
-			log.Debug("stopping importer's output goroutine")
+			log.Debug("stopping importer's glue (fetch) goroutine")
 		}()
 
 		sbf := newStreamBlockFetcher()
@@ -214,7 +247,7 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 			select {
 			case <-ctx.Done():
 				return
-			case output, open = <-outputCh:
+			case output, open = <-glueCh:
 				if open {
 					if output.SequenceIndex < sbf.scursor {
 						// NOTE: this should never happen,
@@ -256,12 +289,11 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 						return
 					}
 
-					// store block,
-					// which has been potentially sliced to fit the storage's block size
-					err = dst.SetBlock(pair.Index, pair.Block)
-					if err != nil {
-						sendErr(err)
+					// send block for storage
+					select {
+					case <-ctx.Done():
 						return
+					case storeCh <- *pair:
 					}
 				}
 
@@ -333,7 +365,7 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 	// wait until all blocks have been fetched and processed
 	wg.Wait()
 	// close output ch, which will stop the output goroutine as soon as it's done
-	close(outputCh)
+	close(glueCh)
 	owg.Wait()
 
 	// if an error occured, return it
