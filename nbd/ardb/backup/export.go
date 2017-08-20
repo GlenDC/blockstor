@@ -264,11 +264,11 @@ func (sbf *storageBlockFetcher) FetchBlock() (*blockIndexPair, error) {
 
 	var err error
 	pair := new(blockIndexPair)
-	pair.Block, err = sbf.storage.GetBlock(sbf.index)
+	pair.Block, err = sbf.storage.GetBlock(sbf.indices[sbf.index])
 	if err != nil {
 		return nil, err
 	}
-	pair.Index = sbf.index
+	pair.Index = sbf.indices[sbf.index]
 	sbf.index++
 
 	// a storage might return a block not big enough
@@ -319,11 +319,9 @@ func (p *exportPipeline) WriteBlock(index int64, data []byte) error {
 	}
 
 	hash := zerodisk.HashBytes(bufA.Bytes())
-	if p.DedupedMap != nil {
-		blockIsNew := p.DedupedMap.SetHash(index, hash)
-		if !blockIsNew {
-			return nil // we're done here
-		}
+	blockIsNew := p.DedupedMap.SetHash(index, hash)
+	if !blockIsNew {
+		return nil // we're done here
 	}
 
 	return p.StorageDriver.SetDedupedBlock(hash, bufA)

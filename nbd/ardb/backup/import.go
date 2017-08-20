@@ -117,7 +117,6 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 			StorageDriver: src,
 			Decrypter:     decrypter,
 			Decompressor:  decompressor,
-			DedupedMap:    dedupedMap,
 		}
 
 		// launch worker
@@ -355,7 +354,6 @@ type importPipeline struct {
 	StorageDriver StorageDriver
 	Decrypter     Decrypter
 	Decompressor  Decompressor
-	DedupedMap    *DedupedMap
 }
 
 func (p *importPipeline) ReadBlock(index int64, hash zerodisk.Hash) ([]byte, error) {
@@ -365,16 +363,9 @@ func (p *importPipeline) ReadBlock(index int64, hash zerodisk.Hash) ([]byte, err
 		return nil, err
 	}
 
-	if p.DedupedMap != nil {
-		expectedHash, ok := p.DedupedMap.GetHash(index)
-		if !ok {
-			return nil, errInvalidBlockIndex
-		}
-
-		hash := zerodisk.HashBytes(bufA.Bytes())
-		if !expectedHash.Equals(hash) {
-			return nil, fmt.Errorf("block %d's hash does not match its content", index)
-		}
+	blockHash := zerodisk.HashBytes(bufA.Bytes())
+	if !hash.Equals(blockHash) {
+		return nil, fmt.Errorf("block %d's hash does not match its content", index)
 	}
 
 	bufB := bytes.NewBuffer(nil)

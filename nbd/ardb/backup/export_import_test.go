@@ -152,17 +152,22 @@ func testImportExportCommute(t *testing.T, srcBS, dstBS, blockCount int64, sgen 
 		return
 	}
 
-	var dstBlock []byte
+	var srcBlock, dstBlock []byte
 
 	// ensure that both source and destination contain
 	// the same blocks for the same indices
-	for index, block := range ibm {
+	for _, index := range indices {
+		srcBlock, err = srcMS.GetBlock(index)
+		if !assert.NoError(err) {
+			continue
+		}
+
 		dstBlock, err = dstMS.GetBlock(index)
 		if !assert.NoError(err) {
 			continue
 		}
 
-		assert.Equal(block, dstBlock)
+		assert.Equal(srcBlock, dstBlock)
 	}
 }
 
