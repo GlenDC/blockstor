@@ -194,8 +194,6 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 				return
 			}
 
-			sbf.streamStopped = true
-
 			// if no error has yet occured,
 			// ensure that at the end of this function,
 			// the block fetcher is empty
@@ -217,36 +215,30 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 			case <-ctx.Done():
 				return
 			case output, open = <-outputCh:
-				if !open {
-					if len(sbf.sequences) > 0 {
+				if open {
+					if output.SequenceIndex < sbf.scursor {
+						// NOTE: this should never happen,
+						//       as it indicates a bug in the code
 						err = fmt.Errorf(
-							"output goroutine quits with %d invalid out-of-order blocks",
-							len(sbf.sequences))
+							"unexpected sequence index returned, received %d, which is lower then %d",
+							output.SequenceIndex, sbf.scursor)
 						sendErr(err)
+						return
 					}
-					return
-				}
 
-				if output.SequenceIndex < sbf.scursor {
-					// NOTE: this should never happen,
-					//       as it indicates a bug in the code
-					err = fmt.Errorf(
-						"unexpected sequence index returned, received %d, which is lower then %d",
-						output.SequenceIndex, sbf.scursor)
-					sendErr(err)
-					return
-				}
+					// cache the current received output
+					sbf.sequences[output.SequenceIndex] = blockIndexPair{
+						Block: output.BlockData,
+						Index: output.BlockIndex,
+					}
 
-				// cache the current received output
-				sbf.sequences[output.SequenceIndex] = blockIndexPair{
-					Block: output.BlockData,
-					Index: output.BlockIndex,
-				}
-
-				if output.SequenceIndex > sbf.scursor {
-					// we received an out-of-order index,
-					// so wait for the next one
-					continue
+					if output.SequenceIndex > sbf.scursor {
+						// we received an out-of-order index,
+						// so wait for the next one
+						continue
+					}
+				} else {
+					sbf.streamStopped = true
 				}
 
 				// sequenceIndex == scursor
@@ -271,6 +263,10 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 						sendErr(err)
 						return
 					}
+				}
+
+				if !open {
+					return
 				}
 			}
 		}
