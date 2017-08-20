@@ -72,7 +72,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	inputCh := make(chan blockIndexPair, cfg.JobCount*2) // gets closed by fetcher goroutine
+	inputCh := make(chan blockIndexPair, cfg.JobCount) // gets closed by fetcher goroutine
 
 	errCh := make(chan error)
 	defer close(errCh)

@@ -74,8 +74,8 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	inputCh := make(chan importInput, cfg.JobCount*2)   // gets closed by fetcher goroutine
-	outputCh := make(chan importOutput, cfg.JobCount*2) // gets closed when all blocks have been fetched and processed
+	inputCh := make(chan importInput, cfg.JobCount)   // gets closed by fetcher goroutine
+	outputCh := make(chan importOutput, cfg.JobCount) // gets closed when all blocks have been fetched and processed
 
 	errCh := make(chan error)
 	defer close(errCh)

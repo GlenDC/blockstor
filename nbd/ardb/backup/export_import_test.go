@@ -313,6 +313,132 @@ func generateImportExportDataWithOffsetAndInterval(blockSize, blockCount, offset
 	return indexBlockMap, indices
 }
 
+func TestImportExportCommute_StaticCases_MS(t *testing.T) {
+	testImportExportCommuteStaticCases(t, newInMemoryStorage)
+}
+
+func TestImportExportCommute_StaticCases_DS(t *testing.T) {
+	testImportExportCommuteStaticCases(t, newDedupedStorage)
+}
+
+func testImportExportCommuteStaticCases(t *testing.T, sgen storageGenerator) {
+	for index, testCase := range staticTestSourceDataSlices {
+		t.Logf("testing case %d (2 <-> 8)", index)
+		testImportExportCommuteStatic(t, testCase, 2, 8, sgen)
+		t.Logf("testing case %d (8 <-> 2)", index)
+		testImportExportCommuteStatic(t, testCase, 8, 2, sgen)
+		t.Logf("testing case %d (2 <-> 2)", index)
+		testImportExportCommuteStatic(t, testCase, 2, 2, sgen)
+		t.Logf("testing case %d (8 <-> 8)", index)
+		testImportExportCommuteStatic(t, testCase, 8, 8, sgen)
+	}
+}
+
+func testImportExportCommuteStatic(t *testing.T, sourceData []byte, srcBS, dstBS int64, sgen storageGenerator) {
+	assert := assert.New(t)
+
+	blockCount := int64(len(sourceData)) / srcBS
+
+	ibm := make(map[int64][]byte)
+	var indices []int64
+
+	// collect source data into our familiar mapping and listing
+	for i := int64(0); i < blockCount; i++ {
+		start := i * srcBS
+		end := start + srcBS
+		block := sourceData[start:end]
+		if isNilBlock(block) {
+			continue
+		}
+
+		ibm[i] = block
+		indices = append(indices, i)
+	}
+
+	const (
+		vdiskID = "foo"
+	)
+
+	var err error
+
+	// ctx used for this test
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// setup source in-memory storage
+	srcMS, srcMSClose := sgen(t, vdiskID, srcBS)
+	defer srcMSClose()
+	// store all blocks in the source
+	for index, block := range ibm {
+		err = srcMS.SetBlock(index, block)
+		if !assert.NoError(err) {
+			return
+		}
+	}
+	err = srcMS.Flush()
+	if !assert.NoError(err) {
+		return
+	}
+
+	// setup stub driver to use for this test
+	driver := newStubDriver()
+
+	// export source in-memory storage
+	exportCfg := exportConfig{
+		JobCount:        runtime.NumCPU(),
+		SrcBlockSize:    srcBS,
+		DstBlockSize:    dstBS,
+		CompressionType: LZ4Compression,
+		CryptoKey:       privKey,
+		SnapshotID:      vdiskID,
+	}
+	err = exportBS(ctx, srcMS, indices, driver, exportCfg)
+	if !assert.NoError(err) {
+		return
+	}
+
+	// setup destination in-memory storage
+	dstMS, dstMSClose := sgen(t, vdiskID, srcBS)
+	defer dstMSClose()
+
+	// import into destination in-memory storage
+	importCfg := importConfig{
+		JobCount:        runtime.NumCPU(),
+		SrcBlockSize:    dstBS,
+		DstBlockSize:    srcBS,
+		CompressionType: LZ4Compression,
+		CryptoKey:       privKey,
+		SnapshotID:      vdiskID,
+	}
+	err = importBS(ctx, driver, dstMS, importCfg)
+	if !assert.NoError(err) {
+		return
+	}
+
+	err = dstMS.Flush()
+	if !assert.NoError(err) {
+		return
+	}
+
+	var srcBlock, dstBlock []byte
+
+	// ensure that both source and destination contain
+	// the same blocks for the same indices
+	for _, index := range indices {
+		srcBlock, err = srcMS.GetBlock(index)
+		if !assert.NoErrorf(err, "index: %v", index) {
+			continue
+		}
+
+		dstBlock, err = dstMS.GetBlock(index)
+		if !assert.NoErrorf(err, "index: %v", index) {
+			continue
+		}
+
+		assert.Equalf(srcBlock, dstBlock, "index: %v", index)
+	}
+}
+
 func init() {
 	log.SetLevel(log.DebugLevel)
 }

@@ -191,6 +191,69 @@ func generateInflationDataPair(srcSize, dstSize, dstOffset int64) ([]byte, []byt
 	return input, output
 }
 
+func TestInflationBlockFetcherWithStaticSourceData(t *testing.T) {
+	for index, testCase := range staticTestSourceDataSlices {
+		t.Logf("testing case %d (2 -> 8)", index)
+		testInflationBlockFetcherStatic(t, testCase, 2, 8)
+		t.Logf("testing case %d (4 -> 8)", index)
+		testInflationBlockFetcherStatic(t, testCase, 4, 8)
+	}
+}
+
+func testInflationBlockFetcherStatic(t *testing.T, sourceData []byte, srcBS, dstBS int64) {
+	assert := assert.New(t)
+	if !assert.True(srcBS < dstBS) {
+		return
+	}
+
+	stub := new(stubBlockFetcher)
+	fetcher := newInflationBlockFetcher(stub, srcBS, dstBS)
+
+	// functions should work (see: not panic)
+	// even though we reached EOF
+	_, err := fetcher.FetchBlock()
+	assert.Equal(io.EOF, err)
+
+	sourceDataLength := int64(len(sourceData))
+
+	// add all source blocks (which aren't nil)
+	for i := int64(0); i < sourceDataLength; i += srcBS {
+		start := i
+		end := start + srcBS
+		block := sourceData[start:end]
+
+		if isNilBlock(block) {
+			continue
+		}
+
+		index := i / srcBS
+		stub.AddBlock(index, block)
+	}
+
+	// now try to read all dst blocks
+	for i := int64(0); i < sourceDataLength; i += dstBS {
+		start := i
+		end := start + dstBS
+		block := sourceData[start:end]
+
+		if isNilBlock(block) {
+			continue
+		}
+
+		index := i / dstBS
+		pair, err := fetcher.FetchBlock()
+		if !assert.NoError(err) {
+			continue
+		}
+		assert.Equal(index, pair.Index)
+		assert.Equal(block, pair.Block)
+	}
+
+	// now stub should be EOF
+	_, err = fetcher.FetchBlock()
+	assert.Equal(io.EOF, err)
+}
+
 func TestDeflationBlockFetcher_8_to_2_with_i1_and_o0(t *testing.T) {
 	testDeflationBlockFetcher(t, 8, 2, 1, 0)
 }
@@ -317,6 +380,69 @@ func testDeflationBlockFetcher(t *testing.T, srcBS, dstBS, interval, offset int6
 			end := start + dstBS
 			assert.Equalf(srcData[start:end], pair.Block, "u = %d", u)
 		}
+	}
+
+	// now stub should be EOF
+	_, err = fetcher.FetchBlock()
+	assert.Equal(io.EOF, err)
+}
+
+func TestDeflationBlockFetcherWithStaticSourceData(t *testing.T) {
+	for index, testCase := range staticTestSourceDataSlices {
+		t.Logf("testing case %d (8 -> 2)", index)
+		testDeflationBlockFetcherStatic(t, testCase, 8, 2)
+		t.Logf("testing case %d (8 -> 4)", index)
+		testDeflationBlockFetcherStatic(t, testCase, 8, 4)
+	}
+}
+
+func testDeflationBlockFetcherStatic(t *testing.T, sourceData []byte, srcBS, dstBS int64) {
+	assert := assert.New(t)
+	if !assert.True(srcBS > dstBS) {
+		return
+	}
+
+	stub := new(stubBlockFetcher)
+	fetcher := newDeflationBlockFetcher(stub, srcBS, dstBS)
+
+	// functions should work (see: not panic)
+	// even though we reached EOF
+	_, err := fetcher.FetchBlock()
+	assert.Equal(io.EOF, err)
+
+	sourceDataLength := int64(len(sourceData))
+
+	// add all source blocks (which aren't nil)
+	for i := int64(0); i < sourceDataLength; i += srcBS {
+		start := i
+		end := start + srcBS
+		block := sourceData[start:end]
+
+		if isNilBlock(block) {
+			continue
+		}
+
+		index := i / srcBS
+		stub.AddBlock(index, block)
+	}
+
+	// now try to read all dst blocks
+	for i := int64(0); i < sourceDataLength; i += dstBS {
+		start := i
+		end := start + dstBS
+		block := sourceData[start:end]
+
+		if isNilBlock(block) {
+			continue
+		}
+
+		index := i / dstBS
+		pair, err := fetcher.FetchBlock()
+		if !assert.NoError(err) {
+			continue
+		}
+		assert.Equal(index, pair.Index)
+		assert.Equal(block, pair.Block)
 	}
 
 	// now stub should be EOF
