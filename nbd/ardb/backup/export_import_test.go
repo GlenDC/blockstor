@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"runtime"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,7 @@ import (
 	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/nbd/ardb/storage"
 	"github.com/zero-os/0-Disk/redisstub"
+	"github.com/zero-os/0-Disk/testdata"
 )
 
 func TestImportExportCommute_8_2_16_MS(t *testing.T) {
@@ -438,6 +440,131 @@ func testImportExportCommuteStatic(t *testing.T, sourceData []byte, srcBS, dstBS
 		assert.Equalf(srcBlock, dstBlock, "index: %v", index)
 	}
 }
+
+func TestImportExportCommute_LedeImg(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	t.Log("load lede image from gzipped testdata")
+	ibm, err := testdata.ReadAllLedeBlocks()
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	var indices []int64
+
+	// collect all indices and sort them
+	for index := range ibm {
+		indices = append(indices, index)
+	}
+	sort.Sort(int64Slice(indices))
+
+	bs := int64(testdata.LedeImageBlockSize)
+
+	t.Log("test (in-memory) import-export commut using export blocks of 4096 bytes (same size as source)")
+	testImportExportCommuteUsingPremadeData(t, ibm, indices, bs, bs, newInMemoryStorage)
+
+	t.Log("test (in-memory) import-export commut using the export blocks of 131072 bytes (production default)")
+	testImportExportCommuteUsingPremadeData(t, ibm, indices, bs, 131072, newInMemoryStorage)
+
+	t.Log("test (deduped w/ ledisdb) import-export commut using the export blocks of 131072 bytes (production default)")
+	testImportExportCommuteUsingPremadeData(t, ibm, indices, bs, 131072, newDedupedStorage)
+}
+
+func testImportExportCommuteUsingPremadeData(t *testing.T, ibm map[int64][]byte, indices []int64, srcBS, dstBS int64, sgen storageGenerator) {
+	assert := assert.New(t)
+
+	const (
+		vdiskID = "foo"
+	)
+
+	var err error
+
+	// ctx used for this test
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// setup source in-memory storage
+	srcMS, srcMSClose := sgen(t, vdiskID, srcBS)
+	defer srcMSClose()
+	// store all blocks in the source
+	for index, block := range ibm {
+		err = srcMS.SetBlock(index, block)
+		if !assert.NoError(err) {
+			return
+		}
+	}
+	err = srcMS.Flush()
+	if !assert.NoError(err) {
+		return
+	}
+
+	// setup stub driver to use for this test
+	driver := newStubDriver()
+
+	// export source in-memory storage
+	exportCfg := exportConfig{
+		JobCount:        runtime.NumCPU(),
+		SrcBlockSize:    srcBS,
+		DstBlockSize:    dstBS,
+		CompressionType: LZ4Compression,
+		CryptoKey:       privKey,
+		SnapshotID:      vdiskID,
+	}
+	err = exportBS(ctx, srcMS, indices, driver, exportCfg)
+	if !assert.NoError(err) {
+		return
+	}
+
+	// setup destination in-memory storage
+	dstMS, dstMSClose := sgen(t, vdiskID, srcBS)
+	defer dstMSClose()
+
+	// import into destination in-memory storage
+	importCfg := importConfig{
+		JobCount:        runtime.NumCPU(),
+		SrcBlockSize:    dstBS,
+		DstBlockSize:    srcBS,
+		CompressionType: LZ4Compression,
+		CryptoKey:       privKey,
+		SnapshotID:      vdiskID,
+	}
+	err = importBS(ctx, driver, dstMS, importCfg)
+	if !assert.NoError(err) {
+		return
+	}
+
+	err = dstMS.Flush()
+	if !assert.NoError(err) {
+		return
+	}
+
+	var srcBlock, dstBlock []byte
+
+	// ensure that both source and destination contain
+	// the same blocks for the same indices
+	for _, index := range indices {
+		srcBlock, err = srcMS.GetBlock(index)
+		if !assert.NoErrorf(err, "index: %v", index) {
+			continue
+		}
+
+		dstBlock, err = dstMS.GetBlock(index)
+		if !assert.NoErrorf(err, "index: %v", index) {
+			continue
+		}
+
+		assert.Equalf(srcBlock, dstBlock, "index: %v", index)
+	}
+}
+
+// int64Slice implements the sort.Interface for a slice of int64s
+type int64Slice []int64
+
+func (s int64Slice) Len() int           { return len(s) }
+func (s int64Slice) Less(i, j int) bool { return s[i] < s[j] }
+func (s int64Slice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
 func init() {
 	log.SetLevel(log.DebugLevel)
