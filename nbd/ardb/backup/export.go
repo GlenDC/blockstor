@@ -125,12 +125,11 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 			// ensure that at the end of this function,
 			// the block fetcher is empty
 			_, err = bf.FetchBlock()
-			if err == nil || err != io.EOF {
+			if sbf.index < sbf.length {
 				err = errors.New("storage's block fetcher still has unstored content left")
 				sendErr(err)
 				return
 			}
-			err = nil
 		}()
 
 		var inPair *blockIndexPair
