@@ -447,10 +447,7 @@ func TestImportExportCommute_LedeImg(t *testing.T) {
 	}
 
 	t.Log("load lede image from gzipped testdata")
-	ibm, err := testdata.ReadAllLedeBlocks()
-	if !assert.NoError(t, err) {
-		return
-	}
+	ibm := getLedeImageBlocks()
 
 	var indices []int64
 

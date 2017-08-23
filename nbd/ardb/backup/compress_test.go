@@ -6,6 +6,8 @@ import (
 	mrand "math/rand"
 	"sync"
 	"testing"
+
+	"github.com/zero-os/0-Disk/testdata"
 )
 
 func TestCompressLZ4(t *testing.T) {
@@ -141,21 +143,16 @@ func benchmarkXZ(b *testing.B, size int64) {
 	benchmarkCompressor(b, size, compressor, decompressor)
 }
 
-// TODO: get some proper sample data so we have a more appropriate input for the compressor
-//       as random data is not really compressable.
-
 func benchmarkCompressor(b *testing.B, size int64, compressor Compressor, decompressor Decompressor) {
-	in := make([]byte, size)
-	rand.Read(in)
-	b.SetBytes(size)
+	in := generateCompressBenchData(b, size)
 
 	var cbytes []byte
 	var logCompressionRatioOnce sync.Once
 
 	logCompressionRatioOnceBody := func() {
 		dlen := int64(len(cbytes))
-		b.Logf("compressed %d bytes down to %d bytes (~%d times smaller)",
-			size, dlen, size/dlen)
+		b.Logf("compressed %d bytes down to %d bytes (~%f times smaller)",
+			size, dlen, float64(size)/float64(dlen))
 	}
 
 	for i := 0; i < b.N; i++ {
@@ -192,4 +189,24 @@ func benchmarkCompressor(b *testing.B, size int64, compressor Compressor, decomp
 			continue
 		}
 	}
+}
+
+func generateCompressBenchData(b *testing.B, size int64) []byte {
+	b.StopTimer()
+	defer b.StartTimer()
+	b.SetBytes(size)
+
+	ibm := getLedeImageBlocks()
+	benchData := make([]byte, size)
+
+	offset := int64(0)
+	for _, data := range ibm {
+		copy(benchData[offset:], data)
+		offset += testdata.LedeImageBlockSize
+		if offset >= size {
+			break
+		}
+	}
+
+	return benchData
 }

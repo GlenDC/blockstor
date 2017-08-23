@@ -1,6 +1,11 @@
 package backup
 
-import "github.com/zero-os/0-Disk/config"
+import (
+	"sync"
+
+	"github.com/zero-os/0-Disk/config"
+	"github.com/zero-os/0-Disk/testdata"
+)
 
 var validConfigs = []Config{
 	// Explicit Example
@@ -76,3 +81,18 @@ var invalidConfigs = []Config{
 		CompressionType: CompressionType(42),
 	},
 }
+
+func getLedeImageBlocks() map[int64][]byte {
+	fetchLedeImageBlocksOnce.Do(func() {
+		var err error
+		ledeImageBlocks, err = testdata.ReadAllLedeBlocks()
+		if err != nil {
+			panic(err)
+		}
+	})
+
+	return ledeImageBlocks
+}
+
+var fetchLedeImageBlocksOnce sync.Once
+var ledeImageBlocks map[int64][]byte
