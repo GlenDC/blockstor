@@ -9,6 +9,7 @@ import (
 	"github.com/zero-os/0-Disk/nbd/ardb"
 
 	"github.com/zero-os/0-Disk/config"
+	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb/storage"
 )
 
@@ -335,6 +336,7 @@ func createBlockStorage(vdiskID string, sourceConfig config.SourceConfig, listIn
 
 	var indices []int64
 	if listIndices {
+		log.Debugf("collecting all stored block indices for vdisk %s, this might take a while...", vdiskID)
 		indices, err = storage.ListBlockIndices(vdiskID, vdiskConfig.Type, &nbdStorageConfig.StorageCluster)
 		if err != nil {
 			return nil, fmt.Errorf(

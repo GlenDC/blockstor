@@ -106,7 +106,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 		var err error
 		defer func() {
 			if err != nil {
-				log.Debugf("stopping export's block fetcher with error: %v", err)
+				log.Errorf("stopping export's block fetcher with error: %v", err)
 				return
 			}
 			log.Debug("stopping export's block fetcher")
@@ -124,7 +124,6 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 			// if no error has yet occured,
 			// ensure that at the end of this function,
 			// the block fetcher is empty
-			_, err = bf.FetchBlock()
 			if sbf.index < sbf.length {
 				err = errors.New("storage's block fetcher still has unstored content left")
 				sendErr(err)
@@ -191,7 +190,7 @@ func exportBS(ctx context.Context, src storage.BlockStorage, blockIndices []int6
 			var err error
 			defer func() {
 				if err != nil {
-					log.Debugf("stopping export worker #%d with error: %v", id, err)
+					log.Errorf("stopping export worker #%d with error: %v", id, err)
 					return
 				}
 				log.Debugf("stopping export worker #%d", id)

@@ -8,6 +8,7 @@ import (
 	"path"
 
 	"github.com/zero-os/0-Disk"
+	"github.com/zero-os/0-Disk/log"
 )
 
 // LocalStorageDriver ceates a driver which allows you
@@ -66,6 +67,8 @@ func (ld *localDriver) Close() error {
 
 func (ld *localDriver) readFile(dir, name string, w io.Writer) error {
 	path := path.Join(ld.root, dir, name)
+
+	log.Debug("reading content from: ", path)
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -74,6 +77,7 @@ func (ld *localDriver) readFile(dir, name string, w io.Writer) error {
 		return err
 	}
 	defer file.Close()
+
 	_, err = io.Copy(w, file)
 	return err
 }
@@ -100,6 +104,7 @@ func (ld *localDriver) writeFile(dir, name string, r io.Reader, overwrite bool) 
 		}
 	}
 
+	log.Debug("writing content to: ", path)
 	file, err := os.Create(path)
 	if err != nil {
 		return err

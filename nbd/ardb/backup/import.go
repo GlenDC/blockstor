@@ -132,7 +132,7 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 
 			defer func() {
 				if err != nil {
-					log.Debugf("stopping import worker #%d with error: %v", id, err)
+					log.Errorf("stopping import worker #%d with error: %v", id, err)
 					return
 				}
 				log.Debugf("stopping export worker #%d", id)
@@ -213,7 +213,7 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 		var err error
 		defer func() {
 			if err != nil {
-				log.Debugf("stopping importer's glue (fetch) goroutine with error: %v", err)
+				log.Errorf("stopping importer's glue (fetch) goroutine with error: %v", err)
 				return
 			}
 			log.Debug("stopping importer's glue (fetch) goroutine")
@@ -313,7 +313,7 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 		var err error
 		defer func() {
 			if err != nil {
-				log.Debugf("stopping importer's hash fetcher with error: %v", err)
+				log.Errorf("stopping importer's hash fetcher with error: %v", err)
 				return
 			}
 			log.Debug("stopping importer's hash fetcher")
