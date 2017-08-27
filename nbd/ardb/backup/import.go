@@ -70,6 +70,9 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 		return err
 	}
 
+	errCh := make(chan error)
+	defer close(errCh)
+
 	// setup the context that we'll use for all worker goroutines
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -78,12 +81,10 @@ func importBS(ctx context.Context, src StorageDriver, dst storage.BlockStorage, 
 	glueCh := make(chan importOutput, cfg.JobCount)    // gets closed when all blocks have been fetched and sent for storage
 	storeCh := make(chan blockIndexPair, cfg.JobCount) // gets closed when all blocks when been stored
 
-	errCh := make(chan error)
-	defer close(errCh)
-
 	sendErr := func(err error) {
 		log.Errorf("an error occured while importing: %v", err)
 		select {
+		case <-ctx.Done():
 		case errCh <- err:
 		default:
 		}
@@ -418,13 +419,7 @@ func (p *importPipeline) ReadBlock(index int64, hash zerodisk.Hash) ([]byte, err
 
 func newHashFetcher(dedupedMap *DedupedMap) *hashFetcher {
 	// collect and sort all index-hash pairs
-	var pairs indexHashPairSlice
-	for index, hash := range dedupedMap.hashes {
-		pairs = append(pairs, indexHashPair{
-			Index: index,
-			Hash:  hash,
-		})
-	}
+	pairs := dedupedMap.indexHashPairSlice()
 	sort.Sort(pairs)
 
 	// return the hashFetcher ready for usage
@@ -454,15 +449,6 @@ func (hf *hashFetcher) FetchHash() (*indexHashPair, error) {
 	return &hf.pairs[hf.cursor-1], nil
 }
 
-// A pair of index and the hash it is mapped to.
-type indexHashPair struct {
-	Index int64
-	Hash  zerodisk.Hash
-}
-
-// typedef used to be able to sort
-type indexHashPairSlice []indexHashPair
-
 type importConfig struct {
 	JobCount int
 
@@ -474,11 +460,6 @@ type importConfig struct {
 
 	SnapshotID string
 }
-
-// implements Sort.Interface
-func (ihps indexHashPairSlice) Len() int           { return len(ihps) }
-func (ihps indexHashPairSlice) Less(i, j int) bool { return ihps[i].Index < ihps[j].Index }
-func (ihps indexHashPairSlice) Swap(i, j int)      { ihps[i], ihps[j] = ihps[j], ihps[i] }
 
 type importInput struct {
 	BlockHash     zerodisk.Hash

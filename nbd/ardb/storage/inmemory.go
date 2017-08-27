@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"sync"
+	"github.com/zero-os/0-Disk"
 )
 
 // NewInMemoryStorage returns an in-memory BlockStorage implementation
@@ -9,7 +9,6 @@ func NewInMemoryStorage(vdiskID string, blockSize int64) BlockStorage {
 	return &inMemoryStorage{
 		blockSize: blockSize,
 		vdiskID:   vdiskID,
-		vdisk:     make(map[int64][]byte),
 	}
 }
 
@@ -22,42 +21,36 @@ func NewInMemoryStorage(vdiskID string, blockSize int64) BlockStorage {
 type inMemoryStorage struct {
 	blockSize int64
 	vdiskID   string
-	vdisk     map[int64][]byte
-	mux       sync.RWMutex
+	vdisk     zerodisk.SyncMap
 }
 
 // SetBlock implements BlockStorage.SetBlock
 func (ms *inMemoryStorage) SetBlock(blockIndex int64, content []byte) (err error) {
-	ms.mux.Lock()
-	defer ms.mux.Unlock()
-
 	// don't store zero blocks,
 	// and delete existing ones if they already existed
 	if ms.isZeroContent(content) {
-		delete(ms.vdisk, blockIndex)
+		ms.vdisk.Delete(blockIndex)
 		return
 	}
 
 	// content is not zero, so let's (over)write it
-	ms.vdisk[blockIndex] = content
+	ms.vdisk.Store(blockIndex, content)
 	return
 }
 
 // GetBlock implements BlockStorage.GetBlock
 func (ms *inMemoryStorage) GetBlock(blockIndex int64) (content []byte, err error) {
-	ms.mux.RLock()
-	defer ms.mux.RUnlock()
-
-	content, _ = ms.vdisk[blockIndex]
+	value, ok := ms.vdisk.Load(blockIndex)
+	if !ok {
+		return
+	}
+	content, _ = value.([]byte)
 	return
 }
 
 // DeleteBlock implements BlockStorage.DeleteBlock
 func (ms *inMemoryStorage) DeleteBlock(blockIndex int64) (err error) {
-	ms.mux.Lock()
-	defer ms.mux.Unlock()
-
-	delete(ms.vdisk, blockIndex)
+	ms.vdisk.Delete(blockIndex)
 	return
 }
 

@@ -15,20 +15,20 @@ func TestHashMapSerialization(t *testing.T) {
 	)
 
 	// create and set all hashes
-	hashes := make(map[int64]zerodisk.Hash)
+	var hashes zerodisk.SyncMap
 	for i := 0; i < hashCount; i++ {
 		hash := zerodisk.NewHash()
 		_, err := rand.Read(hash[:])
 		if err != nil {
 			t.Fatal(err)
 		}
-		hashes[int64(i)] = hash
+		hashes.Store(int64(i), hash)
 	}
 
 	buf := bytes.NewBuffer(nil)
 
 	// serialize
-	err := serializeHashes(hashes, buf)
+	err := serializeHashes(&hashes, buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,14 +43,23 @@ func TestHashMapSerialization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for index, hash := range hashes {
-		outHash, ok := outHashes[index]
-		if !ok {
-			t.Errorf("couldn't find hash %d in out hashmap", index)
-			continue
+	hashes.Range(func(k, v interface{}) bool {
+		key, ok := k.(int64)
+		if !assert.True(t, ok) {
+			return false
 		}
-		assert.Equal(t, hash, outHash)
-	}
+		hash, ok := v.(zerodisk.Hash)
+		if !assert.True(t, ok) {
+			return false
+		}
+
+		outHash, ok := outHashes.Load(key)
+		if !assert.True(t, ok) {
+			return false
+		}
+
+		return assert.Equal(t, hash, outHash)
+	})
 }
 
 func TestDedupedMapSerialization(t *testing.T) {

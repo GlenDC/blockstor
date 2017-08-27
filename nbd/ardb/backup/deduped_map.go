@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 
 	"github.com/zero-os/0-Disk"
 	"github.com/zero-os/0-Disk/log"
@@ -18,7 +17,7 @@ import (
 // See `DedupedMap` for more information.
 func NewDedupedMap() *DedupedMap {
 	return &DedupedMap{
-		hashes: make(map[int64]zerodisk.Hash),
+		hashes: new(zerodisk.SyncMap),
 	}
 }
 
@@ -125,8 +124,7 @@ func DeserializeDedupedMap(key *CryptoKey, ct CompressionType, src io.Reader) (*
 // NOTE: DedupedMap is not thread-safe,
 //       and should only be used on one goroutine at a time.
 type DedupedMap struct {
-	hashes map[int64]zerodisk.Hash
-	mux    sync.Mutex
+	hashes *zerodisk.SyncMap
 }
 
 // SetHash sets the given hash, mapped to the given (export block) index.
@@ -134,25 +132,20 @@ type DedupedMap struct {
 // and the hash equals the given hash, the given hash won't be used and `false` wil be returned.
 // Otherwise the given hash is mapped to the given index and `true`` will be returned.
 func (dm *DedupedMap) SetHash(index int64, hash zerodisk.Hash) bool {
-	dm.mux.Lock()
-	defer dm.mux.Unlock()
-
-	if h, found := dm.hashes[index]; found && h.Equals(hash) {
-		return false
-	}
-
-	dm.hashes[index] = hash
-	return true
+	_, loaded := dm.hashes.LoadOrStore(index, hash)
+	return !loaded
 }
 
 // GetHash returns the hash which is mapped to the given (export block) index.
 // `false` is returned in case no hash is mapped to the given (export block) index.
 func (dm *DedupedMap) GetHash(index int64) (zerodisk.Hash, bool) {
-	dm.mux.Lock()
-	defer dm.mux.Unlock()
+	value, ok := dm.hashes.Load(index)
+	if !ok {
+		return nil, false
+	}
 
-	hash, found := dm.hashes[index]
-	return hash, found
+	hash, ok := value.(zerodisk.Hash)
+	return hash, ok
 }
 
 // Serialize allows you to write all data of this map in a binary encoded manner,
@@ -160,9 +153,6 @@ func (dm *DedupedMap) GetHash(index int64) (zerodisk.Hash, bool) {
 // writen to the given writer.
 // You can re-load this map in memory using the `DeserializeDedupedMap` function.
 func (dm *DedupedMap) Serialize(key *CryptoKey, ct CompressionType, dst io.Writer) error {
-	dm.mux.Lock()
-	defer dm.mux.Unlock()
-
 	compressor, err := NewCompressor(ct)
 	if err != nil {
 		return err
@@ -188,25 +178,34 @@ func (dm *DedupedMap) Serialize(key *CryptoKey, ct CompressionType, dst io.Write
 	return nil
 }
 
+// indexHashPairSlice returns this deduped map
+// as an unsorted index-hash pair slice.
+func (dm *DedupedMap) indexHashPairSlice() indexHashPairSlice {
+	var slice indexHashPairSlice
+	dm.hashes.Range(func(k, v interface{}) bool {
+		slice = append(slice, indexHashPair{
+			Index: k.(int64),
+			Hash:  v.(zerodisk.Hash),
+		})
+		return true
+	})
+	return slice
+}
+
 // serializeHashes encapsulates the entire encoding logic
 // for the deduped map serialization.
-func serializeHashes(hashes map[int64]zerodisk.Hash, w io.Writer) error {
-	hashCount := len(hashes)
-	if hashCount == 0 {
-		return errors.New("deduped map is empty")
-	}
-
+func serializeHashes(hashes *zerodisk.SyncMap, w io.Writer) error {
 	var format dedupedMapEncodeFormat
-	format.Count = int64(hashCount)
 
-	format.Indices = make([]int64, hashCount)
-	format.Hashes = make([][]byte, hashCount)
+	hashes.Range(func(k, v interface{}) bool {
+		format.Indices = append(format.Indices, k.(int64))
+		format.Hashes = append(format.Hashes, []byte(v.(zerodisk.Hash)))
+		format.Count++
+		return true
+	})
 
-	var i int
-	for index, hash := range hashes {
-		format.Indices[i] = index
-		format.Hashes[i] = hash.Bytes()
-		i++
+	if format.Count == 0 {
+		return errors.New("deduped map is empty")
 	}
 
 	return bencode.NewEncoder(w).Encode(format)
@@ -214,7 +213,7 @@ func serializeHashes(hashes map[int64]zerodisk.Hash, w io.Writer) error {
 
 // deserializeHashes encapsulates the entire decoding logic
 // for the deduped map serialization.
-func deserializeHashes(r io.Reader) (map[int64]zerodisk.Hash, error) {
+func deserializeHashes(r io.Reader) (*zerodisk.SyncMap, error) {
 	var format dedupedMapEncodeFormat
 	err := bencode.NewDecoder(r).Decode(&format)
 	if err != nil {
@@ -231,12 +230,12 @@ func deserializeHashes(r io.Reader) (map[int64]zerodisk.Hash, error) {
 		return nil, errors.New("invalid hash count for decoded deduped map")
 	}
 
-	hashes := make(map[int64]zerodisk.Hash, format.Count)
+	var hashes zerodisk.SyncMap
 	for i := int64(0); i < format.Count; i++ {
-		hashes[format.Indices[i]] = zerodisk.Hash(format.Hashes[i])
+		hashes.Store(format.Indices[i], zerodisk.Hash(format.Hashes[i]))
 	}
 
-	return hashes, nil
+	return &hashes, nil
 }
 
 // dedupedMapEncodeFormat defines the structure used to
@@ -247,3 +246,17 @@ type dedupedMapEncodeFormat struct {
 	Indices []int64  `bencode:"i"`
 	Hashes  [][]byte `bencode:"h"`
 }
+
+// A pair of index and the hash it is mapped to.
+type indexHashPair struct {
+	Index int64
+	Hash  zerodisk.Hash
+}
+
+// typedef used to be able to sort
+type indexHashPairSlice []indexHashPair
+
+// implements Sort.Interface
+func (ihps indexHashPairSlice) Len() int           { return len(ihps) }
+func (ihps indexHashPairSlice) Less(i, j int) bool { return ihps[i].Index < ihps[j].Index }
+func (ihps indexHashPairSlice) Swap(i, j int)      { ihps[i], ihps[j] = ihps[j], ihps[i] }
