@@ -587,6 +587,22 @@ func TestListDedupedBlockIndices(t *testing.T) {
 	}
 }
 
+func BenchmarkDedupedStorageUsingLedeImg(b *testing.B) {
+	log.SetLevel(log.InfoLevel)
+
+	const (
+		vdiskID = "a"
+	)
+
+	redisProvider := redisstub.NewInMemoryRedisProvider(nil)
+	storage, err := Deduped(vdiskID, 8, ardb.DefaultLBACacheLimit, false, redisProvider)
+	if err != nil || storage == nil {
+		b.Fatalf("storage could not be created: %v", err)
+	}
+
+	benchmarkStorageUsingLedeImg(b, storage)
+}
+
 func init() {
 	log.SetLevel(log.DebugLevel)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/redisstub"
+	"github.com/zero-os/0-Disk/testdata"
 )
 
 // shared test function to test all types of BlockStorage equally,
@@ -531,6 +532,42 @@ func TestStorageOpPipeline(t *testing.T) {
 	assert.Equal(1, len(pipeline))
 	err = pipeline.Apply(cfg)
 	assert.NoError(err, "getting existent stuff should be fine")
+}
+
+func benchmarkStorageUsingLedeImg(b *testing.B, storage BlockStorage) {
+	b.StopTimer()
+	blocks, err := testdata.ReadAllLedeBlocks()
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.StartTimer()
+
+	// set all original blocks
+	for index, block := range blocks {
+		err := storage.SetBlock(index, block)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	// get all blocks
+	for index, expectedBlock := range blocks {
+		block, err := storage.GetBlock(index)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !bytes.Equal(expectedBlock, block) {
+			b.Fatalf("block %d is invalid", index)
+		}
+	}
+
+	// delete all blocks
+	for index := range blocks {
+		err := storage.DeleteBlock(index)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func init() {
