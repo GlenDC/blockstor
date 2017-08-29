@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -45,11 +44,6 @@ func Deduped(vdiskID string, blockSize, lbaCacheLimit int64, templateSupport boo
 		lba:             vlba,
 	}
 
-	for i := 0; i < dedupBackgroundWorkerCount; i++ {
-		dedupedStorage.rcActionChannels[i] = make(chan rcAction, dedupBackgroundWorkerBufferSize)
-	}
-	dedupedStorage.goBackground()
-
 	// getContent is ALWAYS defined,
 	// but the actual function used depends on
 	// whether or not this storage has template support.
@@ -74,10 +68,6 @@ type dedupedStorage struct {
 	provider        ardb.ConnProvider    // used to get a connection to a storage server
 	lba             *lba.LBA             // the LBA used to get/set/modify the metadata (content hashes)
 	getContent      dedupedContentGetter // getContent function used to get content, is always defined
-
-	// used for background thread
-	cancel           context.CancelFunc
-	rcActionChannels [dedupBackgroundWorkerCount]chan rcAction
 }
 
 // used to provide different content getters based on the vdisk properties
@@ -130,10 +120,14 @@ func (ds *dedupedStorage) DeleteBlock(blockIndex int64) (err error) {
 		return
 	}
 
-	// only if the hash was succesfully deleted from the vdisk's LBA,
-	// we should dereference the content,
-	// and delete the content if the new reference count < 1
-	ds.dereferenceContent(hash)
+	conn, err := ds.getDataConnection(hash)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	refKey := dsReferenceKey(hash)
+	_, err = conn.Do("DECR", refKey)
 	return
 }
 
@@ -232,113 +226,35 @@ func (ds *dedupedStorage) setContent(hash zerodisk.Hash, content []byte) error {
 	}
 	defer conn.Close()
 
-	_, err = conn.Do("SET", hash.Bytes(), content)
+	// pipeline all operations
+	err = conn.Send("SET", hash.Bytes(), content)
+	if err != nil {
+		return err
+	}
+	refKey := dsReferenceKey(hash)
+	err = conn.Send("INCR", refKey)
+	if err != nil {
+		return err
+	}
+
+	// send all operations
+	err = conn.Flush()
+	if err != nil {
+		return err
+	}
+
+	// receive all replies
+	_, err = conn.Receive()
+	if err != nil {
+		return err
+	}
+	_, err = conn.Receive()
 	return err
 }
 
 // Close implements BlockStorage.Close
 func (ds *dedupedStorage) Close() error {
-	ds.cancel()
 	return nil
-}
-
-func (ds *dedupedStorage) goBackground() {
-	var ctx context.Context
-	ctx, ds.cancel = context.WithCancel(context.Background())
-	for i := range ds.rcActionChannels {
-		workerID := i
-		go func() {
-			ds.goBackgroundWorker(ctx, workerID)
-		}()
-	}
-}
-
-func (ds *dedupedStorage) goBackgroundWorker(ctx context.Context, workerID int) {
-	log.Debugf("starting deduped background worker #%d", workerID+1)
-	ch := ds.rcActionChannels[workerID]
-	for {
-		select {
-		case action := <-ch:
-			var err error
-
-			switch action.Type {
-			case rcIncrease:
-				err = ds.goReferenceContent(action.Hash)
-			case rcDecrease:
-				err = ds.goDereferenceContent(action.Hash)
-			default:
-				err = fmt.Errorf(
-					"background rc action %d for %v not recognized",
-					action.Type, action.Hash)
-			}
-
-			if err != nil {
-				log.Infof(
-					"worker #%d: error during content (de)referencing: %s",
-					workerID+1, err.Error())
-			}
-
-		case <-ctx.Done():
-			log.Debugf("close dedupedStorage %q's background worker #%d",
-				ds.vdiskID, workerID+1)
-			return
-		}
-	}
-}
-
-// sender of the reference content action
-func (ds *dedupedStorage) referenceContent(hash zerodisk.Hash) {
-	workerID := dsWorkerID(hash)
-	ds.rcActionChannels[workerID] <- rcAction{
-		Type: rcIncrease,
-		Hash: hash,
-	}
-}
-
-// receiver of the reference content action
-func (ds *dedupedStorage) goReferenceContent(hash zerodisk.Hash) (err error) {
-	key := dsReferenceKey(hash)
-
-	conn, err := ds.getDataConnection(hash)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	_, err = conn.Do("INCR", key)
-	return
-}
-
-// sender of the dereference content action
-func (ds *dedupedStorage) dereferenceContent(hash zerodisk.Hash) {
-	workerID := dsWorkerID(hash)
-	ds.rcActionChannels[workerID] <- rcAction{
-		Type: rcDecrease,
-		Hash: hash,
-	}
-}
-
-// receiver of the dereference content action
-func (ds *dedupedStorage) goDereferenceContent(hash zerodisk.Hash) (err error) {
-	key := dsReferenceKey(hash)
-
-	conn, err := ds.getDataConnection(hash)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	count, err := redis.Int64(conn.Do("DECR", key))
-	if err != nil || count > 0 {
-		return
-	}
-
-	_, err = conn.Do("DEL", hash.Bytes(), key)
-	return
-}
-
-func dsWorkerID(hash zerodisk.Hash) int {
-	return int(hash[0]) % dedupBackgroundWorkerCount
 }
 
 func dsReferenceKey(hash zerodisk.Hash) (key []byte) {
@@ -351,25 +267,6 @@ func dsReferenceKey(hash zerodisk.Hash) (key []byte) {
 const (
 	rcKeyPrefix       = "rc:"
 	rcKeyPrefixLength = len(rcKeyPrefix)
-)
-
-const (
-	dedupBackgroundWorkerCount      = 8
-	dedupBackgroundWorkerBufferSize = 32
-)
-
-type rcAction struct {
-	// Type of action
-	Type rcActionType
-	// Hash the actions applies on
-	Hash zerodisk.Hash
-}
-
-type rcActionType int
-
-const (
-	rcIncrease rcActionType = iota
-	rcDecrease
 )
 
 // DedupedVdiskExists returns if the deduped vdisk in question
