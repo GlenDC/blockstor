@@ -135,6 +135,7 @@ func newVdisk(parentCtx context.Context, vdiskID string, aggMq *aggmq.MQ, config
 	}
 
 	ctx, cancelFunc := context.WithCancel(parentCtx)
+	defer cancelFunc()
 
 	if err := vd.watchConfig(ctx); err != nil {
 		return nil, err
