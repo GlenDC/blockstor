@@ -184,6 +184,7 @@ const (
 	StorageServerStateRepair
 	StorageServerStateRespread
 	StorageServerStateRIP
+	StorageServerStateUnknown StorageServerState = -1
 )
 
 // String returns the storage type as a string value
