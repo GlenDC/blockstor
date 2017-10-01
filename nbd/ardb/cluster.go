@@ -2,6 +2,7 @@ package ardb
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/zero-os/0-Disk/config"
 )
@@ -9,34 +10,26 @@ import (
 // HotReloading of a cluster shouldn't be part of this package,
 // as it isn't generic enough, and it wouldn't be as efficient as it could be!
 
+// TODO:
+// improve the API of the Cluster struct type,
+// such that it can be easily embedded in another type such as ClusterPair,
+// where we have not just primary servers but also secondary (backup) servers.
+
 // StorageCluster TODO: finish
 type StorageCluster interface {
 	ServerConfig() (*ServerConfig, error)
-	ServerConfigAt(serverIndex int64) (*ServerConfig, error)
 	ServerConfigFor(objectIndex int64) (*ServerConfig, error)
 	ServerIndexFor(objectIndex int64) (int64, error)
 }
 
-// TODO:
-// how to set server states and react on those changes?
-
-// TODO:
-// should we simply make the dynamic reloading a standalone spawned goroutine
-// which manages a cluster?!
-
-// ClusterPair TODO
-type ClusterPair struct {
-	first, second *Cluster
-}
-
-// TODO: define ClusterPair methods
-
 // NewCluster creates a new ARDB Cluster.
-func NewCluster(servers ...config.StorageServerConfig) *Cluster {
-	return &Cluster{
-		servers:     servers,
-		serverCount: int64(len(servers)),
+func NewCluster(clusterType ClusterType, servers ...config.StorageServerConfig) (*Cluster, error) {
+	cluster := new(Cluster)
+	err := cluster.SetServers(clusterType, servers...)
+	if err != nil {
+		return nil, err
 	}
+	return cluster, nil
 }
 
 // Cluster represents the in-memory state
@@ -45,30 +38,67 @@ func NewCluster(servers ...config.StorageServerConfig) *Cluster {
 type Cluster struct {
 	servers     []config.StorageServerConfig
 	serverCount int64
-
-	// TODO:
-	// + add cluster type
-	// + make goroutine safe
+	clusterType ClusterType
+	mux         sync.RWMutex
 }
 
-// SetServers TODO
-func (cluster *Cluster) SetServers(servers ...config.StorageServerConfig) error {
-	return errors.New("TODO")
+// SetServers allows you to overwrite the clusterType AND servers of this cluster,
+// basically setting all the data this cluster uses.
+// It's a function that can be used to implement the hot reloading of data.
+func (cluster *Cluster) SetServers(clusterType ClusterType, servers ...config.StorageServerConfig) error {
+	if len(servers) == 0 {
+		return ErrInsufficientServers
+	}
+	err := clusterType.Validate()
+	if err != nil {
+		return err
+	}
+
+	cluster.mux.Lock()
+	cluster.servers = servers
+	cluster.serverCount = int64(len(servers))
+	cluster.clusterType = clusterType
+	cluster.mux.Unlock()
+	return nil
 }
 
-// SetServerState TODO
-func (cluster *Cluster) SetServerState(serverIndex int64, state config.StorageServerState) error {
-	return errors.New("TODO")
+// ServerStateAt returns the state of a server at a given index.
+func (cluster *Cluster) ServerStateAt(serverIndex int64) (config.StorageServerState, error) {
+	cluster.mux.RLock()
+	defer cluster.mux.RUnlock()
+
+	if serverIndex < 0 || serverIndex >= cluster.serverCount {
+		return config.StorageServerStateUnknown, ErrServerIndexOOB
+	}
+	return cluster.servers[serverIndex].State, nil
+}
+
+// SetServerStateAt sets the state for a server at a given index,
+// returning true if the state in question wasn't set yet.
+func (cluster *Cluster) SetServerStateAt(serverIndex int64, state config.StorageServerState) (bool, error) {
+	currentState, err := cluster.ServerStateAt(serverIndex)
+	if err != nil || currentState == state {
+		return false, err // err or nothing to do
+	}
+
+	cluster.mux.Lock()
+	cluster.servers[serverIndex].State = state
+	cluster.mux.Unlock()
+	return true, nil
 }
 
 // ServerConfig returns the first available server.
 func (cluster *Cluster) ServerConfig() (*ServerConfig, error) {
+	cluster.mux.RLock()
+	defer cluster.mux.RUnlock()
+
 	for serverIndex, server := range cluster.servers {
 		if server.State == config.StorageServerStateOnline {
 			return &ServerConfig{
 				Address:  server.Address,
 				Database: server.Database,
 				Index:    int64(serverIndex),
+				Type:     cluster.clusterType,
 			}, nil
 		}
 	}
@@ -76,29 +106,13 @@ func (cluster *Cluster) ServerConfig() (*ServerConfig, error) {
 	return nil, ErrNoServersAvailable
 }
 
-// ServerConfigAt returns the ServerConfig at a given server index.
-func (cluster *Cluster) ServerConfigAt(serverIndex int64) (*ServerConfig, error) {
-	if serverIndex < 0 || serverIndex >= cluster.serverCount {
-		return nil, ErrServerIndexOOB
-	}
-
-	server := cluster.servers[serverIndex]
-	if server.State != config.StorageServerStateOnline {
-		return nil, ErrServerNotOnline
-	}
-
-	// return the configuration for the operational server
-	return &ServerConfig{
-		Address:  server.Address,
-		Database: server.Database,
-		Index:    serverIndex,
-	}, nil
-}
-
 // ServerConfigFor returns the ServerConfig for a given object index.
 func (cluster *Cluster) ServerConfigFor(objectIndex int64) (*ServerConfig, error) {
+	cluster.mux.RLock()
+	defer cluster.mux.RUnlock()
+
 	// get the server index of an operational server of this cluster
-	serverIndex, err := cluster.ServerIndexFor(objectIndex)
+	serverIndex, err := cluster.serverIndex(objectIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -109,13 +123,19 @@ func (cluster *Cluster) ServerConfigFor(objectIndex int64) (*ServerConfig, error
 		Address:  server.Address,
 		Database: server.Database,
 		Index:    serverIndex,
-		//Type:     serverType, // TODO
+		Type:     cluster.clusterType,
 	}, nil
 }
 
 // ServerIndexFor returns the server index of a server,
 // for a given index of an object.
 func (cluster *Cluster) ServerIndexFor(objectIndex int64) (int64, error) {
+	cluster.mux.RLock()
+	defer cluster.mux.RUnlock()
+	return cluster.serverIndex(objectIndex)
+}
+
+func (cluster *Cluster) serverIndex(objectIndex int64) (int64, error) {
 	// first try the modulo sharding,
 	// which will work for all default online shards
 	// and thus keep it as cheap as possible
@@ -173,34 +193,47 @@ type ServerConfig struct {
 	Address  string
 	Database int
 	Index    int64
-	Type     ServerType
+	Type     ClusterType
 }
 
-// ServerType defines a type of ardb server.
-type ServerType uint8
+// ClusterType defines a type of ardb server.
+type ClusterType uint8
 
-// String returns the ServerType as a string.
-func (st ServerType) String() string {
-	switch st {
-	case ServerTypePrimary:
+// String returns the ClusterType as a string.
+func (ct ClusterType) String() string {
+	switch ct {
+	case ClusterTypePrimary:
 		return "primary"
-	case ServerTypeSlave:
+	case ClusterTypeSlave:
 		return "slave"
-	case ServerTypeTemplate:
+	case ClusterTypeTemplate:
 		return "template"
 	default:
 		return ""
 	}
 }
 
+// Validate this ClusterType,
+// returning an error in case the cluster type isn't valid.
+func (ct ClusterType) Validate() error {
+	if ct >= ClusterTypeCount {
+		return ErrInvalidClusterType
+	}
+	return nil
+}
+
 // The different server types available.
 const (
-	ServerTypePrimary ServerType = iota
-	ServerTypeSlave
-	ServerTypeTemplate
+	ClusterTypePrimary ClusterType = iota
+	ClusterTypeSlave
+	ClusterTypeTemplate
+	ClusterTypeCount
 )
 
 var (
+	// ErrInvalidClusterType is returned in acse
+	// a cluster type is invalid.
+	ErrInvalidClusterType = errors.New("invalid cluster type")
 	// ErrServerNotOnline is returned in case
 	// a server is requested which isn't online according to its state.
 	ErrServerNotOnline = errors.New("server is not online")
