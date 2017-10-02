@@ -1,12 +1,70 @@
 package ardb
 
-import (
-	"errors"
-	"sync"
+import "errors"
 
-	"github.com/zero-os/0-Disk/config"
+// Cluster defines the minimal interface expected from an ARDB Cluster Model.
+type Cluster interface {
+	// Connection dials a connection
+	// to the first available server of this cluster.
+	Connection() (Conn, error)
+	// Connection dials a connection to a server within this cluster,
+	// and which maps to the given objectIndex (taking the cluster state into account).
+	ConnectionFor(objectIndex int64) (Conn, error)
+}
+
+// ComputeServerIndex computes a server index for a given objectIndex,
+// using a shared static algorithm with the serverCount as input and
+// a given predicate to define if a computed index is fine.
+func ComputeServerIndex(serverCount, objectIndex int64, predicate func(serverIndex int64) bool) (int64, error) {
+	// first try the modulo sharding,
+	// which will work for all default online shards
+	// and thus keep it as cheap as possible
+	serverIndex := objectIndex % serverCount
+	if predicate(serverIndex) {
+		return serverIndex, nil
+	}
+
+	// ensure that we have servers which are actually online
+	var operational bool
+	for i := int64(0); i < serverCount; i++ {
+		if predicate(i) {
+			operational = true
+			break
+		}
+	}
+	if !operational {
+		return -1, ErrNoServersAvailable
+	}
+
+	// keep trying until we find an online server
+	// in the same reproducable manner
+	// (another kind of tracing)
+	// using jumpConsistentHash taken from https://arxiv.org/pdf/1406.2294.pdf
+	var j int64
+	var key uint64
+	for {
+		key = uint64(objectIndex)
+		j = 0
+		for j < serverCount {
+			serverIndex = j
+			key = key*2862933555777941757 + 1
+			j = int64(float64(serverIndex+1) * (float64(int64(1)<<31) / float64((key>>33)+1)))
+		}
+		if predicate(serverIndex) {
+			return serverIndex, nil
+		}
+
+		objectIndex++
+	}
+}
+
+var (
+	// ErrNoServersAvailable is returned in case
+	// no servers are available for usage.
+	ErrNoServersAvailable = errors.New("no servers available")
 )
 
+/*
 // HotReloading of a cluster shouldn't be part of this package,
 // as it isn't generic enough, and it wouldn't be as efficient as it could be!
 
@@ -213,48 +271,4 @@ var (
 	ErrInsufficientServers = errors.New("insufficient servers configured")
 )
 
-// ComputeServerIndex computes a server index for a given objectIndex,
-// using a shared static algorithm with the serverCount as input and
-// a given predicate to define if a computed index is fine.
-func ComputeServerIndex(serverCount, objectIndex int64, predicate func(serverIndex int64) bool) (int64, error) {
-	// first try the modulo sharding,
-	// which will work for all default online shards
-	// and thus keep it as cheap as possible
-	serverIndex := objectIndex % serverCount
-	if predicate(serverIndex) {
-		return serverIndex, nil
-	}
-
-	// ensure that we have servers which are actually online
-	var operational bool
-	for i := int64(0); i < serverCount; i++ {
-		if predicate(i) {
-			operational = true
-			break
-		}
-	}
-	if !operational {
-		return -1, ErrNoServersAvailable
-	}
-
-	// keep trying until we find an online server
-	// in the same reproducable manner
-	// (another kind of tracing)
-	// using jumpConsistentHash taken from https://arxiv.org/pdf/1406.2294.pdf
-	var j int64
-	var key uint64
-	for {
-		key = uint64(objectIndex)
-		j = 0
-		for j < serverCount {
-			serverIndex = j
-			key = key*2862933555777941757 + 1
-			j = int64(float64(serverIndex+1) * (float64(int64(1)<<31) / float64((key>>33)+1)))
-		}
-		if predicate(serverIndex) {
-			return serverIndex, nil
-		}
-
-		objectIndex++
-	}
-}
+*/
