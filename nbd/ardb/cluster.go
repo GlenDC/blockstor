@@ -112,7 +112,7 @@ func (cluster *Cluster) ServerConfigFor(objectIndex int64) (*ServerConfig, error
 	defer cluster.mux.RUnlock()
 
 	// get the server index of an operational server of this cluster
-	serverIndex, err := cluster.serverIndex(objectIndex)
+	serverIndex, err := ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverOperational)
 	if err != nil {
 		return nil, err
 	}
@@ -132,43 +132,7 @@ func (cluster *Cluster) ServerConfigFor(objectIndex int64) (*ServerConfig, error
 func (cluster *Cluster) ServerIndexFor(objectIndex int64) (int64, error) {
 	cluster.mux.RLock()
 	defer cluster.mux.RUnlock()
-	return cluster.serverIndex(objectIndex)
-}
-
-func (cluster *Cluster) serverIndex(objectIndex int64) (int64, error) {
-	// first try the modulo sharding,
-	// which will work for all default online shards
-	// and thus keep it as cheap as possible
-	serverIndex := objectIndex % cluster.serverCount
-	if cluster.servers[serverIndex].State == config.StorageServerStateOnline {
-		return serverIndex, nil
-	}
-
-	// ensure that we have servers which are actually online
-	if !cluster.operational() {
-		return -1, ErrNoServersAvailable
-	}
-
-	// keep trying until we find an online server
-	// in the same reproducable manner
-	// (another kind of tracing)
-	// using jumpConsistentHash taken from https://arxiv.org/pdf/1406.2294.pdf
-	var j int64
-	var key uint64
-	for {
-		key = uint64(objectIndex)
-		j = 0
-		for j < cluster.serverCount {
-			serverIndex = j
-			key = key*2862933555777941757 + 1
-			j = int64(float64(serverIndex+1) * (float64(int64(1)<<31) / float64((key>>33)+1)))
-		}
-		if cluster.servers[serverIndex].State == config.StorageServerStateOnline {
-			return serverIndex, nil
-		}
-
-		objectIndex++
-	}
+	return ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverOperational)
 }
 
 // operational returns true if
@@ -248,3 +212,49 @@ var (
 	// the amount of specified servers is not sufficient for its use case.
 	ErrInsufficientServers = errors.New("insufficient servers configured")
 )
+
+// ComputeServerIndex computes a server index for a given objectIndex,
+// using a shared static algorithm with the serverCount as input and
+// a given predicate to define if a computed index is fine.
+func ComputeServerIndex(serverCount, objectIndex int64, predicate func(serverIndex int64) bool) (int64, error) {
+	// first try the modulo sharding,
+	// which will work for all default online shards
+	// and thus keep it as cheap as possible
+	serverIndex := objectIndex % serverCount
+	if predicate(serverIndex) {
+		return serverIndex, nil
+	}
+
+	// ensure that we have servers which are actually online
+	var operational bool
+	for i := int64(0); i < serverCount; i++ {
+		if predicate(i) {
+			operational = true
+			break
+		}
+	}
+	if !operational {
+		return -1, ErrNoServersAvailable
+	}
+
+	// keep trying until we find an online server
+	// in the same reproducable manner
+	// (another kind of tracing)
+	// using jumpConsistentHash taken from https://arxiv.org/pdf/1406.2294.pdf
+	var j int64
+	var key uint64
+	for {
+		key = uint64(objectIndex)
+		j = 0
+		for j < serverCount {
+			serverIndex = j
+			key = key*2862933555777941757 + 1
+			j = int64(float64(serverIndex+1) * (float64(int64(1)<<31) / float64((key>>33)+1)))
+		}
+		if predicate(serverIndex) {
+			return serverIndex, nil
+		}
+
+		objectIndex++
+	}
+}
