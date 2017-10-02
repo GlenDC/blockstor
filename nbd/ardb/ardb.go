@@ -134,15 +134,3 @@ func RedisInt64ToBytesMapping(reply interface{}, err error) (map[int64][]byte, e
 	}
 	return m, nil
 }
-
-// errorConnection copied from redigo
-type errorConnection struct {
-	err error
-}
-
-func (ec errorConnection) Do(string, ...interface{}) (interface{}, error) { return nil, ec.err }
-func (ec errorConnection) Send(string, ...interface{}) error              { return ec.err }
-func (ec errorConnection) Err() error                                     { return ec.err }
-func (ec errorConnection) Close() error                                   { return ec.err }
-func (ec errorConnection) Flush() error                                   { return ec.err }
-func (ec errorConnection) Receive() (interface{}, error)                  { return nil, ec.err }
