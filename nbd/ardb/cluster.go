@@ -1,6 +1,10 @@
 package ardb
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/zero-os/0-Disk/config"
+)
 
 // Cluster defines the minimal interface expected from an ARDB Cluster Model.
 type Cluster interface {
@@ -10,6 +14,63 @@ type Cluster interface {
 	// Connection dials a connection to a server within this cluster,
 	// and which maps to the given objectIndex (taking the cluster state into account).
 	ConnectionFor(objectIndex int64) (Conn, error)
+}
+
+// NewStaticCluster creates a new static (ARDB) cluster.
+func NewStaticCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*StaticCluster, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	if dialer == nil {
+		dialer = new(StandardConnectionDialer)
+	}
+	return &StaticCluster{
+		servers:     cfg.Servers,
+		serverCount: int64(len(cfg.Servers)),
+		dialer:      dialer,
+	}, nil
+}
+
+// StaticCluster is the standard and most simple cluster model one can define.
+type StaticCluster struct {
+	servers     []config.StorageServerConfig
+	serverCount int64
+	dialer      ConnectionDialer
+}
+
+// Connection implements Cluster.Connection
+func (cluster *StaticCluster) Connection() (Conn, error) {
+	for _, server := range cluster.servers {
+		if server.State == config.StorageServerStateOnline {
+			return cluster.dialer.Dial(ConnConfig{
+				Address:  server.Address,
+				Database: server.Database,
+			})
+		}
+	}
+
+	return nil, ErrNoServersAvailable
+}
+
+// ConnectionFor implements Cluster.ConnectionFor
+func (cluster *StaticCluster) ConnectionFor(objectIndex int64) (Conn, error) {
+	serverIndex, err := ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverIsOnline)
+	if err != nil {
+		return nil, err
+	}
+
+	server := cluster.servers[serverIndex]
+	return cluster.dialer.Dial(ConnConfig{
+		Address:  server.Address,
+		Database: server.Database,
+	})
+}
+
+// serverOperational returns true if
+// the server on the given index is online.
+func (cluster *StaticCluster) serverIsOnline(index int64) bool {
+	return cluster.servers[index].State == config.StorageServerStateOnline
 }
 
 // ComputeServerIndex computes a server index for a given objectIndex,
