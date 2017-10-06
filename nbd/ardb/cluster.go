@@ -10,14 +10,17 @@ import (
 // ConnProvider blaa...
 type ConnProvider interface {
 	// Connection dials a connection
-	// to the first available server of this cluster.
+	// to the first available server of this provider.
 	Connection() (Conn, error)
-	// Connection dials a connection to a server within this cluster,
-	// and which maps to the given objectIndex (taking the cluster state into account).
+	// Connection dials a connection to a server within this provider,
+	// and which currently maps to the given objectIndex.
 	ConnectionFor(objectIndex int64) (Conn, error)
 }
 
-// NewCluster creates a new static (ARDB) cluster.
+// TODO:
+// ensure that *Cluster and *ClusterPair adhere to the ConnProvider interface type
+
+// NewCluster creates a new (ARDB) cluster.
 func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Cluster, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -26,6 +29,7 @@ func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Clus
 	if dialer == nil {
 		dialer = new(StandardConnectionDialer)
 	}
+
 	return &Cluster{
 		servers:     cfg.Servers,
 		serverCount: int64(len(cfg.Servers)),
@@ -33,12 +37,16 @@ func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Clus
 	}, nil
 }
 
+// ServerStateChangeHandler TODO...
+type ServerStateChangeHandler func(index int64, cfg config.StorageServerConfig, prevState config.StorageServerState) error
+
 // Cluster defines the in memory cluster
 type Cluster struct {
-	servers     []config.StorageServerConfig
-	serverCount int64
-	dialer      ConnectionDialer
-	mux         sync.RWMutex
+	servers            []config.StorageServerConfig
+	serverCount        int64
+	serverStateHandler ServerStateChangeHandler
+	dialer             ConnectionDialer
+	mux                sync.RWMutex
 }
 
 // Connection implements ConnProvider.Connection
@@ -75,18 +83,58 @@ func (cluster *Cluster) ConnectionFor(objectIndex int64) (Conn, error) {
 	})
 }
 
-// SetServers allows you to set the servers used by this cluster.
-func (cluster *Cluster) SetServers(servers []config.StorageServerConfig) error {
-	if len(servers) == 0 {
-		return ErrInvalidInput
+// SetStorageconfig allows you to overwrite the currently used storage config
+func (cluster *Cluster) SetStorageconfig(cfg config.StorageClusterConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return err
 	}
 
-	cluster.mux.Lock()
-	cluster.servers = servers
-	cluster.serverCount = int64(len(servers))
-	cluster.mux.Unlock()
+	if cluster.serverStateHandler == nil {
+		// if no state change handler is configured,
+		// we can keep it simple and just update the servers used
+		cluster.mux.Lock()
+		cluster.servers = cfg.Servers
+		cluster.serverCount = int64(len(cfg.Servers))
+		cluster.mux.Unlock()
+		return nil
+	}
 
+	// as a state change handler is registered
+	// we need to make sure to handle each update
+	cluster.mux.Lock()
+	defer cluster.mux.Unlock()
+
+	// handle each updated server,
+	// that is: a server which only changed state
+
+	serverCount := int64(len(cfg.Servers))
+	if serverCount > cluster.serverCount {
+		serverCount = cluster.serverCount
+	}
+
+	var err error
+	var origServer, newServer config.StorageServerConfig
+
+	for index := int64(0); index < serverCount; index++ {
+		origServer, newServer = cluster.servers[index], cfg.Servers[index]
+		if !storageServersEqual(origServer, newServer) || origServer.State == newServer.State {
+			continue // a new server or non-changed state, so no update here
+		}
+
+		err = cluster.serverStateHandler(index, newServer, origServer.State)
+		if err != nil {
+			return err
+		}
+	}
+
+	cluster.servers = cfg.Servers
+	cluster.serverCount = serverCount
 	return nil
+}
+
+func storageServersEqual(a, b config.StorageServerConfig) bool {
+	return a.Database == b.Database &&
+		a.Address == b.Address
 }
 
 // SetServerState sets the state of a server.
@@ -102,44 +150,90 @@ func (cluster *Cluster) SetServerState(serverIndex int64, state config.StorageSe
 	return nil
 }
 
+// SetServerStateChangeHandler allows you to (un)set a handler
+// which reacts on a server's state being updated.
+func (cluster *Cluster) SetServerStateChangeHandler(handler ServerStateChangeHandler) {
+	cluster.mux.Lock()
+	cluster.serverStateHandler = handler
+	cluster.mux.Unlock()
+}
+
 // serverOperational returns true if
 // the server on the given index is online.
 func (cluster *Cluster) serverIsOnline(index int64) bool {
 	return cluster.servers[index].State == config.StorageServerStateOnline
 }
 
-// TODO: define this fucking clusterPair
-// the idea is there, but the implementation is shit
-// need to make sure we can lock properly
-// .... might be better to define an entirely new type though
-// .... as this looks like shiiit
+// NewClusterPair creates a new (ARDB) cluster pair.
+func NewClusterPair(first config.StorageClusterConfig, second *config.StorageClusterConfig, dialer ConnectionDialer) (*ClusterPair, error) {
+	err := first.Validate()
+	if err != nil {
+		return nil, err
+	}
 
+	pair := &ClusterPair{
+		fstServers:     first.Servers,
+		fstServerCount: int64(len(first.Servers)),
+		dialer:         dialer,
+	}
+
+	if second != nil {
+		err = second.Validate()
+		if err != nil {
+			return nil, err
+		}
+
+		pair.sndServers = second.Servers
+		pair.sndServerCount = int64(len(second.Servers))
+	}
+
+	if pair.dialer == nil {
+		pair.dialer = new(StandardConnectionDialer)
+	}
+
+	return pair, nil
+}
+
+// ClusterPair defines a pair of clusters,
+// where the secondary cluster is used as a backup for the first cluster.
 type ClusterPair struct {
-	First  *Cluster
-	Second *Cluster
+	fstServers            []config.StorageServerConfig
+	fstServerCount        int64
+	fstServerStateHandler ServerStateChangeHandler
+
+	sndServers            []config.StorageServerConfig
+	sndServerCount        int64
+	sndServerStateHandler ServerStateChangeHandler
+
+	dialer ConnectionDialer
+
+	mux sync.RWMutex
 }
 
 // Connection implements ConnProvider.Connection
 func (pair *ClusterPair) Connection() (Conn, error) {
+	pair.mux.RLock()
+	defer pair.mux.RUnlock()
+
 	var server config.StorageServerConfig
-	for index := int64(0); index < pair.First.serverCount; index++ {
+	for index := int64(0); index < pair.fstServerCount; index++ {
 		// check if primary server is online
-		server = pair.First.servers[index]
+		server = pair.fstServers[index]
 		if server.State == config.StorageServerStateOnline {
-			return pair.First.dialer.Dial(ConnConfig{
+			return pair.dialer.Dial(ConnConfig{
 				Address:  server.Address,
 				Database: server.Database,
 			})
 		}
-		if server.State != config.StorageServerStateOffline || pair.Second == nil {
+		if server.State != config.StorageServerStateOffline || pair.sndServerCount == 0 {
 			continue
 		}
 
 		// if slave servers are available, and the primary server state is offline,
 		// let's try to get that slave server
-		server = pair.Second.servers[index]
+		server = pair.sndServers[index]
 		if server.State == config.StorageServerStateOnline {
-			return pair.Second.dialer.Dial(ConnConfig{
+			return pair.dialer.Dial(ConnConfig{
 				Address:  server.Address,
 				Database: server.Database,
 			})
@@ -151,38 +245,181 @@ func (pair *ClusterPair) Connection() (Conn, error) {
 
 // ConnectionFor implements ConnProvider.ConnectionFor
 func (pair *ClusterPair) ConnectionFor(objectIndex int64) (Conn, error) {
-	serverIndex, err := ComputeServerIndex(pair.First.serverCount, objectIndex, pair.serverIsOnline)
+	pair.mux.RLock()
+	defer pair.mux.RUnlock()
+
+	serverIndex, err := ComputeServerIndex(pair.fstServerCount, objectIndex, pair.serverIsOnline)
 	if err != nil {
 		return nil, err
 	}
 
-	server := pair.First.servers[serverIndex]
+	server := pair.fstServers[serverIndex]
 	if server.State == config.StorageServerStateOnline {
-		return pair.First.dialer.Dial(ConnConfig{
+		return pair.dialer.Dial(ConnConfig{
 			Address:  server.Address,
 			Database: server.Database,
 		})
 	}
 
-	server = pair.Second.servers[serverIndex]
-	return pair.Second.dialer.Dial(ConnConfig{
+	server = pair.sndServers[serverIndex]
+	return pair.dialer.Dial(ConnConfig{
 		Address:  server.Address,
 		Database: server.Database,
 	})
 }
 
+// SetPrimaryStorageConfig allows you to overwrite the currently used storage config
+func (pair *ClusterPair) SetPrimaryStorageConfig(cfg config.StorageClusterConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	if pair.fstServerStateHandler == nil {
+		// if no state change handler is configured,
+		// we can keep it simple and just update the servers used
+		pair.mux.Lock()
+		pair.fstServers = cfg.Servers
+		pair.fstServerCount = int64(len(cfg.Servers))
+		pair.mux.Unlock()
+		return nil
+	}
+
+	// as a state change handler is registered
+	// we need to make sure to handle each update
+	pair.mux.Lock()
+	defer pair.mux.Unlock()
+
+	// handle each updated server,
+	// that is: a server which only changed state
+
+	serverCount := int64(len(cfg.Servers))
+	if serverCount > pair.fstServerCount {
+		serverCount = pair.fstServerCount
+	}
+
+	var err error
+	var origServer, newServer config.StorageServerConfig
+
+	for index := int64(0); index < serverCount; index++ {
+		origServer, newServer = pair.fstServers[index], cfg.Servers[index]
+		if !storageServersEqual(origServer, newServer) || origServer.State == newServer.State {
+			continue // a new server or non-changed state, so no update here
+		}
+
+		err = pair.fstServerStateHandler(index, newServer, origServer.State)
+		if err != nil {
+			return err
+		}
+	}
+
+	pair.fstServers = cfg.Servers
+	pair.fstServerCount = serverCount
+	return nil
+}
+
+// SetSecondaryStorageConfig allows you to overwrite the currently used storage config
+func (pair *ClusterPair) SetSecondaryStorageConfig(cfg config.StorageClusterConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	if pair.sndServerStateHandler == nil {
+		// if no state change handler is configured,
+		// we can keep it simple and just update the servers used
+		pair.mux.Lock()
+		pair.sndServers = cfg.Servers
+		pair.sndServerCount = int64(len(cfg.Servers))
+		pair.mux.Unlock()
+		return nil
+	}
+
+	// as a state change handler is registered
+	// we need to make sure to handle each update
+	pair.mux.Lock()
+	defer pair.mux.Unlock()
+
+	// handle each updated server,
+	// that is: a server which only changed state
+
+	serverCount := int64(len(cfg.Servers))
+	if serverCount > pair.sndServerCount {
+		serverCount = pair.sndServerCount
+	}
+
+	var err error
+	var origServer, newServer config.StorageServerConfig
+
+	for index := int64(0); index < serverCount; index++ {
+		origServer, newServer = pair.sndServers[index], cfg.Servers[index]
+		if !storageServersEqual(origServer, newServer) || origServer.State == newServer.State {
+			continue // a new server or non-changed state, so no update here
+		}
+
+		err = pair.sndServerStateHandler(index, newServer, origServer.State)
+		if err != nil {
+			return err
+		}
+	}
+
+	pair.sndServers = cfg.Servers
+	pair.sndServerCount = serverCount
+	return nil
+}
+
+// SetPrimaryServerState sets the state of a primary server.
+func (pair *ClusterPair) SetPrimaryServerState(serverIndex int64, state config.StorageServerState) error {
+	pair.mux.Lock()
+	if serverIndex < 0 || serverIndex > pair.fstServerCount {
+		pair.mux.Unlock()
+		return ErrServerIndexOOB
+	}
+
+	pair.fstServers[serverIndex].State = state
+	pair.mux.Unlock()
+	return nil
+}
+
+// SetSecondaryServerState sets the state of a secondary server.
+func (pair *ClusterPair) SetSecondaryServerState(serverIndex int64, state config.StorageServerState) error {
+	pair.mux.Lock()
+	if serverIndex < 0 || serverIndex > pair.sndServerCount {
+		pair.mux.Unlock()
+		return ErrServerIndexOOB
+	}
+
+	pair.sndServers[serverIndex].State = state
+	pair.mux.Unlock()
+	return nil
+}
+
+// SetPrimaryServerStateChangeHandler allows you to (un)set a handler
+// which reacts on a primary server's state being updated.
+func (pair *ClusterPair) SetPrimaryServerStateChangeHandler(handler ServerStateChangeHandler) {
+	pair.mux.Lock()
+	pair.fstServerStateHandler = handler
+	pair.mux.Unlock()
+}
+
+// SetSecondaryServerStateChangeHandler allows you to (un)set a handler
+// which reacts on a secondary server's state being updated.
+func (pair *ClusterPair) SetSecondaryServerStateChangeHandler(handler ServerStateChangeHandler) {
+	pair.mux.Lock()
+	pair.sndServerStateHandler = handler
+	pair.mux.Unlock()
+}
+
 // serverOperational returns true if
 // a server on the given index is online.
 func (pair *ClusterPair) serverIsOnline(index int64) bool {
-	server := pair.First.servers[index]
+	server := pair.fstServers[index]
 	if server.State == config.StorageServerStateOnline {
 		return true
 	}
-	if server.State != config.StorageServerStateOffline || pair.Second == nil {
+	if server.State != config.StorageServerStateOffline || pair.sndServerCount == 0 {
 		return false
 	}
 
-	server = pair.Second.servers[index]
+	server = pair.sndServers[index]
 	return server.State == config.StorageServerStateOnline
 }
 
