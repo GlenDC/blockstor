@@ -2,12 +2,13 @@ package ardb
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/zero-os/0-Disk/config"
 )
 
-// Cluster defines the minimal interface expected from an ARDB Cluster Model.
-type Cluster interface {
+// ConnProvider blaa...
+type ConnProvider interface {
 	// Connection dials a connection
 	// to the first available server of this cluster.
 	Connection() (Conn, error)
@@ -16,8 +17,8 @@ type Cluster interface {
 	ConnectionFor(objectIndex int64) (Conn, error)
 }
 
-// NewStaticCluster creates a new static (ARDB) cluster.
-func NewStaticCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*StaticCluster, error) {
+// NewCluster creates a new static (ARDB) cluster.
+func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Cluster, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -25,22 +26,26 @@ func NewStaticCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) 
 	if dialer == nil {
 		dialer = new(StandardConnectionDialer)
 	}
-	return &StaticCluster{
+	return &Cluster{
 		servers:     cfg.Servers,
 		serverCount: int64(len(cfg.Servers)),
 		dialer:      dialer,
 	}, nil
 }
 
-// StaticCluster is the standard and most simple cluster model one can define.
-type StaticCluster struct {
+// Cluster defines the in memory cluster
+type Cluster struct {
 	servers     []config.StorageServerConfig
 	serverCount int64
 	dialer      ConnectionDialer
+	mux         sync.RWMutex
 }
 
-// Connection implements Cluster.Connection
-func (cluster *StaticCluster) Connection() (Conn, error) {
+// Connection implements ConnProvider.Connection
+func (cluster *Cluster) Connection() (Conn, error) {
+	cluster.mux.RLock()
+	defer cluster.mux.RUnlock()
+
 	for _, server := range cluster.servers {
 		if server.State == config.StorageServerStateOnline {
 			return cluster.dialer.Dial(ConnConfig{
@@ -53,8 +58,11 @@ func (cluster *StaticCluster) Connection() (Conn, error) {
 	return nil, ErrNoServersAvailable
 }
 
-// ConnectionFor implements Cluster.ConnectionFor
-func (cluster *StaticCluster) ConnectionFor(objectIndex int64) (Conn, error) {
+// ConnectionFor implements ConnProvider.ConnectionFor
+func (cluster *Cluster) ConnectionFor(objectIndex int64) (Conn, error) {
+	cluster.mux.RLock()
+	defer cluster.mux.RUnlock()
+
 	serverIndex, err := ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverIsOnline)
 	if err != nil {
 		return nil, err
@@ -67,10 +75,115 @@ func (cluster *StaticCluster) ConnectionFor(objectIndex int64) (Conn, error) {
 	})
 }
 
+// SetServers allows you to set the servers used by this cluster.
+func (cluster *Cluster) SetServers(servers []config.StorageServerConfig) error {
+	if len(servers) == 0 {
+		return ErrInvalidInput
+	}
+
+	cluster.mux.Lock()
+	cluster.servers = servers
+	cluster.serverCount = int64(len(servers))
+	cluster.mux.Unlock()
+
+	return nil
+}
+
+// SetServerState sets the state of a server.
+func (cluster *Cluster) SetServerState(serverIndex int64, state config.StorageServerState) error {
+	cluster.mux.Lock()
+	if serverIndex < 0 || serverIndex > cluster.serverCount {
+		cluster.mux.Unlock()
+		return ErrServerIndexOOB
+	}
+
+	cluster.servers[serverIndex].State = state
+	cluster.mux.Unlock()
+	return nil
+}
+
 // serverOperational returns true if
 // the server on the given index is online.
-func (cluster *StaticCluster) serverIsOnline(index int64) bool {
+func (cluster *Cluster) serverIsOnline(index int64) bool {
 	return cluster.servers[index].State == config.StorageServerStateOnline
+}
+
+// TODO: define this fucking clusterPair
+// the idea is there, but the implementation is shit
+// need to make sure we can lock properly
+// .... might be better to define an entirely new type though
+// .... as this looks like shiiit
+
+type ClusterPair struct {
+	First  *Cluster
+	Second *Cluster
+}
+
+// Connection implements ConnProvider.Connection
+func (pair *ClusterPair) Connection() (Conn, error) {
+	var server config.StorageServerConfig
+	for index := int64(0); index < pair.First.serverCount; index++ {
+		// check if primary server is online
+		server = pair.First.servers[index]
+		if server.State == config.StorageServerStateOnline {
+			return pair.First.dialer.Dial(ConnConfig{
+				Address:  server.Address,
+				Database: server.Database,
+			})
+		}
+		if server.State != config.StorageServerStateOffline || pair.Second == nil {
+			continue
+		}
+
+		// if slave servers are available, and the primary server state is offline,
+		// let's try to get that slave server
+		server = pair.Second.servers[index]
+		if server.State == config.StorageServerStateOnline {
+			return pair.Second.dialer.Dial(ConnConfig{
+				Address:  server.Address,
+				Database: server.Database,
+			})
+		}
+	}
+
+	return nil, ErrNoServersAvailable
+}
+
+// ConnectionFor implements ConnProvider.ConnectionFor
+func (pair *ClusterPair) ConnectionFor(objectIndex int64) (Conn, error) {
+	serverIndex, err := ComputeServerIndex(pair.First.serverCount, objectIndex, pair.serverIsOnline)
+	if err != nil {
+		return nil, err
+	}
+
+	server := pair.First.servers[serverIndex]
+	if server.State == config.StorageServerStateOnline {
+		return pair.First.dialer.Dial(ConnConfig{
+			Address:  server.Address,
+			Database: server.Database,
+		})
+	}
+
+	server = pair.Second.servers[serverIndex]
+	return pair.Second.dialer.Dial(ConnConfig{
+		Address:  server.Address,
+		Database: server.Database,
+	})
+}
+
+// serverOperational returns true if
+// a server on the given index is online.
+func (pair *ClusterPair) serverIsOnline(index int64) bool {
+	server := pair.First.servers[index]
+	if server.State == config.StorageServerStateOnline {
+		return true
+	}
+	if server.State != config.StorageServerStateOffline || pair.Second == nil {
+		return false
+	}
+
+	server = pair.Second.servers[index]
+	return server.State == config.StorageServerStateOnline
 }
 
 // ComputeServerIndex computes a server index for a given objectIndex,
@@ -123,6 +236,13 @@ var (
 	// ErrNoServersAvailable is returned in case
 	// no servers are available for usage.
 	ErrNoServersAvailable = errors.New("no servers available")
+	// ErrServerIndexOOB is returned in case
+	// a given server index used is out of bounds,
+	// for the cluster context it is used within.
+	ErrServerIndexOOB = errors.New("server index out of bounds")
+	// ErrInvalidInput is an error returned
+	// when the input given for a function is invalid.
+	ErrInvalidInput = errors.New("invalid input given")
 )
 
 /*
