@@ -133,68 +133,7 @@ type Conn interface {
 	Receive() (reply interface{}, err error)
 }
 
-type command struct {
-	Name string
-	args []interface{}
-}
-
-// CommandBuffer can be used to buffer a series of commands,
-// such that you can send+flush+receive them to and from a connection
-// in a reproducable manner, useful if you need to retry such a chain in case of failures.
-type CommandBuffer struct {
-	commands []command
-}
-
-// Add an ARDB command.
-func (buf CommandBuffer) Add(commandName string, args ...interface{}) {
-	buf.commands = append(buf.commands, command{
-		Name: commandName,
-		args: args,
-	})
-}
-
-// Do all buffered commands at once,
-// returning all replies in case of success,
-// and returning an error in case of failure.
-func (buf CommandBuffer) Do(conn Conn) ([]interface{}, error) {
-	if buf.commands == nil {
-		return nil, errNoCommandsBuffered
-	}
-
-	var err error
-
-	// 1. send all commands
-	for _, cmd := range buf.commands {
-		err = conn.Send(cmd.Name, cmd.args...)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// 2. flush all commands
-	err = conn.Flush()
-	if err != nil {
-		return nil, err
-	}
-
-	var reply interface{}
-	var replies []interface{}
-
-	// 3. receive the resulting replies for all commands
-	for range buf.commands {
-		reply, err = conn.Receive()
-		if err != nil {
-			return nil, err
-		}
-		replies = append(replies, reply)
-	}
-
-	// success, return all replies
-	return replies, nil
-}
-
 // Various connection-related errors returned by this package.
 var (
-	errNoCommandsBuffered = errors.New("no commands buffered")
-	errAddressNotGiven    = errors.New("ARDB server address not given")
+	errAddressNotGiven = errors.New("ARDB server address not given")
 )
