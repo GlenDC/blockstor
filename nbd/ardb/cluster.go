@@ -7,18 +7,16 @@ import (
 	"github.com/zero-os/0-Disk/config"
 )
 
-// ConnProvider blaa...
-type ConnProvider interface {
-	// Connection dials a connection
-	// to the first available server of this provider.
-	Connection() (Conn, error)
-	// Connection dials a connection to a server within this provider,
-	// and which currently maps to the given objectIndex.
-	ConnectionFor(objectIndex int64) (Conn, error)
+// StorageCluster defines the interface of an
+// object which allows you to interact with an ARDB Storage Cluster.
+type StorageCluster interface {
+	// Do applies a given action
+	// to the first available server of this cluster.
+	Do(action StorageAction) (reply interface{}, err error)
+	// DoFor applies a given action
+	// to a server within this cluster which maps to the given objectIndex.
+	DoFor(objectIndex int64, action StorageAction) (reply interface{}, err error)
 }
-
-// TODO:
-// ensure that *Cluster and *ClusterPair adhere to the ConnProvider interface type
 
 // NewCluster creates a new (ARDB) cluster.
 func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Cluster, error) {
@@ -37,10 +35,13 @@ func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Clus
 	}, nil
 }
 
-// ServerStateChangeHandler TODO...
+// ServerStateChangeHandler is a handler which allows
+// you to react on ServerState changes,
+// either because a single server gets updated or the entire cluster.
 type ServerStateChangeHandler func(index int64, cfg config.StorageServerConfig, prevState config.StorageServerState) error
 
-// Cluster defines the in memory cluster
+// Cluster defines the in memory cluster model for a single cluster.
+// It can (and probably should) be used as a StorageCluster.
 type Cluster struct {
 	servers            []config.StorageServerConfig
 	serverCount        int64
@@ -49,8 +50,17 @@ type Cluster struct {
 	mux                sync.RWMutex
 }
 
-// Connection implements ConnProvider.Connection
-func (cluster *Cluster) Connection() (Conn, error) {
+// Do implements StorageCluster.Do
+func (cluster *Cluster) Do(action StorageAction) (interface{}, error) {
+	conn, err := cluster.connection()
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	return action.Do(conn)
+}
+
+func (cluster *Cluster) connection() (Conn, error) {
 	cluster.mux.RLock()
 	defer cluster.mux.RUnlock()
 
@@ -66,8 +76,17 @@ func (cluster *Cluster) Connection() (Conn, error) {
 	return nil, ErrNoServersAvailable
 }
 
-// ConnectionFor implements ConnProvider.ConnectionFor
-func (cluster *Cluster) ConnectionFor(objectIndex int64) (Conn, error) {
+// DoFor implements StorageCluster.DoFor
+func (cluster *Cluster) DoFor(objectIndex int64, action StorageAction) (interface{}, error) {
+	conn, err := cluster.connectionFor(objectIndex)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	return action.Do(conn)
+}
+
+func (cluster *Cluster) connectionFor(objectIndex int64) (Conn, error) {
 	cluster.mux.RLock()
 	defer cluster.mux.RUnlock()
 
@@ -140,13 +159,26 @@ func storageServersEqual(a, b config.StorageServerConfig) bool {
 // SetServerState sets the state of a server.
 func (cluster *Cluster) SetServerState(serverIndex int64, state config.StorageServerState) error {
 	cluster.mux.Lock()
+	defer cluster.mux.Unlock()
+
 	if serverIndex < 0 || serverIndex > cluster.serverCount {
-		cluster.mux.Unlock()
 		return ErrServerIndexOOB
 	}
 
-	cluster.servers[serverIndex].State = state
-	cluster.mux.Unlock()
+	if cluster.serverStateHandler != nil {
+		cfg := cluster.servers[serverIndex]
+		prevState := cfg.State
+		cfg.State = state
+
+		err := cluster.serverStateHandler(serverIndex, cfg, prevState)
+		if err != nil {
+			return err
+		}
+		cluster.servers[serverIndex] = cfg
+	} else {
+		cluster.servers[serverIndex].State = state
+	}
+
 	return nil
 }
 
@@ -196,6 +228,7 @@ func NewClusterPair(first config.StorageClusterConfig, second *config.StorageClu
 
 // ClusterPair defines a pair of clusters,
 // where the secondary cluster is used as a backup for the first cluster.
+// It can (and probably should) be used as a StorageCluster.
 type ClusterPair struct {
 	fstServers            []config.StorageServerConfig
 	fstServerCount        int64
@@ -210,8 +243,17 @@ type ClusterPair struct {
 	mux sync.RWMutex
 }
 
-// Connection implements ConnProvider.Connection
-func (pair *ClusterPair) Connection() (Conn, error) {
+// Do implements StorageCluster.Do
+func (pair *ClusterPair) Do(action StorageAction) (interface{}, error) {
+	conn, err := pair.connection()
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	return action.Do(conn)
+}
+
+func (pair *ClusterPair) connection() (Conn, error) {
 	pair.mux.RLock()
 	defer pair.mux.RUnlock()
 
@@ -243,8 +285,17 @@ func (pair *ClusterPair) Connection() (Conn, error) {
 	return nil, ErrNoServersAvailable
 }
 
-// ConnectionFor implements ConnProvider.ConnectionFor
-func (pair *ClusterPair) ConnectionFor(objectIndex int64) (Conn, error) {
+// DoFor implements StorageCluster.DoFor
+func (pair *ClusterPair) DoFor(objectIndex int64, action StorageAction) (interface{}, error) {
+	conn, err := pair.connectionFor(objectIndex)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	return action.Do(conn)
+}
+
+func (pair *ClusterPair) connectionFor(objectIndex int64) (Conn, error) {
 	pair.mux.RLock()
 	defer pair.mux.RUnlock()
 
@@ -268,7 +319,7 @@ func (pair *ClusterPair) ConnectionFor(objectIndex int64) (Conn, error) {
 	})
 }
 
-// SetPrimaryStorageConfig allows you to overwrite the currently used storage config
+// SetPrimaryStorageConfig allows you to overwrite the currently used primary storage config
 func (pair *ClusterPair) SetPrimaryStorageConfig(cfg config.StorageClusterConfig) error {
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -317,8 +368,19 @@ func (pair *ClusterPair) SetPrimaryStorageConfig(cfg config.StorageClusterConfig
 	return nil
 }
 
-// SetSecondaryStorageConfig allows you to overwrite the currently used storage config
-func (pair *ClusterPair) SetSecondaryStorageConfig(cfg config.StorageClusterConfig) error {
+// SetSecondaryStorageConfig allows you to (un)set the currently used secondary storage config
+func (pair *ClusterPair) SetSecondaryStorageConfig(cfg *config.StorageClusterConfig) error {
+	if cfg == nil {
+		// if cfg == nil,
+		// we'll assume that the user wants to unset the secondary storage config,
+		// this is fine as it is optional.
+		pair.mux.Lock()
+		pair.sndServers = nil
+		pair.sndServerCount = 0
+		pair.mux.Unlock()
+		return nil
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -369,26 +431,52 @@ func (pair *ClusterPair) SetSecondaryStorageConfig(cfg config.StorageClusterConf
 // SetPrimaryServerState sets the state of a primary server.
 func (pair *ClusterPair) SetPrimaryServerState(serverIndex int64, state config.StorageServerState) error {
 	pair.mux.Lock()
+	defer pair.mux.Unlock()
+
 	if serverIndex < 0 || serverIndex > pair.fstServerCount {
-		pair.mux.Unlock()
 		return ErrServerIndexOOB
 	}
 
-	pair.fstServers[serverIndex].State = state
-	pair.mux.Unlock()
+	if pair.fstServerStateHandler != nil {
+		cfg := pair.fstServers[serverIndex]
+		prevState := cfg.State
+		cfg.State = state
+
+		err := pair.fstServerStateHandler(serverIndex, cfg, prevState)
+		if err != nil {
+			return err
+		}
+		pair.fstServers[serverIndex] = cfg
+	} else {
+		pair.fstServers[serverIndex].State = state
+	}
+
 	return nil
 }
 
 // SetSecondaryServerState sets the state of a secondary server.
 func (pair *ClusterPair) SetSecondaryServerState(serverIndex int64, state config.StorageServerState) error {
 	pair.mux.Lock()
+	defer pair.mux.Unlock()
+
 	if serverIndex < 0 || serverIndex > pair.sndServerCount {
-		pair.mux.Unlock()
 		return ErrServerIndexOOB
 	}
 
-	pair.sndServers[serverIndex].State = state
-	pair.mux.Unlock()
+	if pair.sndServerStateHandler != nil {
+		cfg := pair.sndServers[serverIndex]
+		prevState := cfg.State
+		cfg.State = state
+
+		err := pair.sndServerStateHandler(serverIndex, cfg, prevState)
+		if err != nil {
+			return err
+		}
+		pair.sndServers[serverIndex] = cfg
+	} else {
+		pair.sndServers[serverIndex].State = state
+	}
+
 	return nil
 }
 
@@ -469,6 +557,13 @@ func ComputeServerIndex(serverCount, objectIndex int64, predicate func(serverInd
 	}
 }
 
+// enforces that our std StorageClusters
+// are actually StorageClusters
+var (
+	_ StorageCluster = (*Cluster)(nil)
+	_ StorageCluster = (*ClusterPair)(nil)
+)
+
 var (
 	// ErrNoServersAvailable is returned in case
 	// no servers are available for usage.
@@ -481,212 +576,3 @@ var (
 	// when the input given for a function is invalid.
 	ErrInvalidInput = errors.New("invalid input given")
 )
-
-/*
-// HotReloading of a cluster shouldn't be part of this package,
-// as it isn't generic enough, and it wouldn't be as efficient as it could be!
-
-// TODO:
-// improve the API of the Cluster struct type,
-// such that it can be easily embedded in another type such as ClusterPair,
-// where we have not just primary servers but also secondary (backup) servers.
-
-// StorageCluster TODO: finish
-type StorageCluster interface {
-	ServerConfig() (*ServerConfig, error)
-	ServerConfigFor(objectIndex int64) (*ServerConfig, error)
-	ServerIndexFor(objectIndex int64) (int64, error)
-}
-
-// NewCluster creates a new ARDB Cluster.
-func NewCluster(clusterType ClusterType, servers ...config.StorageServerConfig) (*Cluster, error) {
-	cluster := new(Cluster)
-	err := cluster.SetServers(clusterType, servers...)
-	if err != nil {
-		return nil, err
-	}
-	return cluster, nil
-}
-
-// Cluster represents the in-memory state
-// as well as the API of a static storage cluster.
-// This type cannot be used on multiple goroutines.
-type Cluster struct {
-	servers     []config.StorageServerConfig
-	serverCount int64
-	clusterType ClusterType
-	mux         sync.RWMutex
-}
-
-// SetServers allows you to overwrite the clusterType AND servers of this cluster,
-// basically setting all the data this cluster uses.
-// It's a function that can be used to implement the hot reloading of data.
-func (cluster *Cluster) SetServers(clusterType ClusterType, servers ...config.StorageServerConfig) error {
-	if len(servers) == 0 {
-		return ErrInsufficientServers
-	}
-	err := clusterType.Validate()
-	if err != nil {
-		return err
-	}
-
-	cluster.mux.Lock()
-	cluster.servers = servers
-	cluster.serverCount = int64(len(servers))
-	cluster.clusterType = clusterType
-	cluster.mux.Unlock()
-	return nil
-}
-
-// ServerStateAt returns the state of a server at a given index.
-func (cluster *Cluster) ServerStateAt(serverIndex int64) (config.StorageServerState, error) {
-	cluster.mux.RLock()
-	defer cluster.mux.RUnlock()
-
-	if serverIndex < 0 || serverIndex >= cluster.serverCount {
-		return config.StorageServerStateUnknown, ErrServerIndexOOB
-	}
-	return cluster.servers[serverIndex].State, nil
-}
-
-// SetServerStateAt sets the state for a server at a given index,
-// returning true if the state in question wasn't set yet.
-func (cluster *Cluster) SetServerStateAt(serverIndex int64, state config.StorageServerState) (bool, error) {
-	currentState, err := cluster.ServerStateAt(serverIndex)
-	if err != nil || currentState == state {
-		return false, err // err or nothing to do
-	}
-
-	cluster.mux.Lock()
-	cluster.servers[serverIndex].State = state
-	cluster.mux.Unlock()
-	return true, nil
-}
-
-// ServerConfig returns the first available server.
-func (cluster *Cluster) ServerConfig() (*ServerConfig, error) {
-	cluster.mux.RLock()
-	defer cluster.mux.RUnlock()
-
-	for serverIndex, server := range cluster.servers {
-		if server.State == config.StorageServerStateOnline {
-			return &ServerConfig{
-				Address:  server.Address,
-				Database: server.Database,
-				Index:    int64(serverIndex),
-				Type:     cluster.clusterType,
-			}, nil
-		}
-	}
-
-	return nil, ErrNoServersAvailable
-}
-
-// ServerConfigFor returns the ServerConfig for a given object index.
-func (cluster *Cluster) ServerConfigFor(objectIndex int64) (*ServerConfig, error) {
-	cluster.mux.RLock()
-	defer cluster.mux.RUnlock()
-
-	// get the server index of an operational server of this cluster
-	serverIndex, err := ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverOperational)
-	if err != nil {
-		return nil, err
-	}
-	server := cluster.servers[objectIndex]
-
-	// return the configuration for the operational server
-	return &ServerConfig{
-		Address:  server.Address,
-		Database: server.Database,
-		Index:    serverIndex,
-		Type:     cluster.clusterType,
-	}, nil
-}
-
-// ServerIndexFor returns the server index of a server,
-// for a given index of an object.
-func (cluster *Cluster) ServerIndexFor(objectIndex int64) (int64, error) {
-	cluster.mux.RLock()
-	defer cluster.mux.RUnlock()
-	return ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverOperational)
-}
-
-// operational returns true if
-// at least one server of the given cluster is online.
-func (cluster *Cluster) operational() bool {
-	for index := range cluster.servers {
-		if cluster.serverOperational(int64(index)) {
-			return true
-		}
-	}
-	return false
-}
-
-// serverOperational returns true if
-// the primary or slave server for the given index is online.
-func (cluster *Cluster) serverOperational(index int64) bool {
-	return cluster.servers[index].State == config.StorageServerStateOnline
-}
-
-// ServerConfig defines the config for an ARDB server.
-type ServerConfig struct {
-	Address  string
-	Database int
-	Index    int64
-	Type     ClusterType
-}
-
-// ClusterType defines a type of ardb server.
-type ClusterType uint8
-
-// String returns the ClusterType as a string.
-func (ct ClusterType) String() string {
-	switch ct {
-	case ClusterTypePrimary:
-		return "primary"
-	case ClusterTypeSlave:
-		return "slave"
-	case ClusterTypeTemplate:
-		return "template"
-	default:
-		return ""
-	}
-}
-
-// Validate this ClusterType,
-// returning an error in case the cluster type isn't valid.
-func (ct ClusterType) Validate() error {
-	if ct >= ClusterTypeCount {
-		return ErrInvalidClusterType
-	}
-	return nil
-}
-
-// The different server types available.
-const (
-	ClusterTypePrimary ClusterType = iota
-	ClusterTypeSlave
-	ClusterTypeTemplate
-	ClusterTypeCount
-)
-
-var (
-	// ErrInvalidClusterType is returned in acse
-	// a cluster type is invalid.
-	ErrInvalidClusterType = errors.New("invalid cluster type")
-	// ErrServerNotOnline is returned in case
-	// a server is requested which isn't online according to its state.
-	ErrServerNotOnline = errors.New("server is not online")
-	// ErrServerIndexOOB is returned in case
-	// a given server index used is out of bounds,
-	// for the cluster context it is used within.
-	ErrServerIndexOOB = errors.New("server index out of bounds")
-	// ErrNoServersAvailable is returned in case
-	// no servers are available for usage.
-	ErrNoServersAvailable = errors.New("no servers available")
-	// ErrInsufficientServers is returned in case for a given situation
-	// the amount of specified servers is not sufficient for its use case.
-	ErrInsufficientServers = errors.New("insufficient servers configured")
-)
-
-*/
