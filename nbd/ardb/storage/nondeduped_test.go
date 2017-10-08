@@ -60,7 +60,7 @@ func TestNondedupedContent(t *testing.T) {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}
 
-	storage, err := NonDeduped(vdiskID, "", 8, false, cluster, nil)
+	storage, err := NonDeduped(vdiskID, "", 8, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestNondedupedContentForceFlush(t *testing.T) {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}
 
-	storage, err := NonDeduped(vdiskID, "", 8, false, cluster, nil)
+	storage, err := NonDeduped(vdiskID, "", 8, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestNonDedupedDeadlock(t *testing.T) {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}
 
-	storage, err := NonDeduped(vdiskID, "", blockSize, false, cluster, nil)
+	storage, err := NonDeduped(vdiskID, "", blockSize, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 		t.Fatalf("couldn't create cluster (a): %v", err)
 	}
 
-	storageA, err := NonDeduped(vdiskID, "", 8, true, clusterA, ardb.NopCluster{})
+	storageA, err := NonDeduped(vdiskID, "", 8, clusterA, ardb.NopCluster{})
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 		t.Fatalf("couldn't create cluster (b): %v", err)
 	}
 
-	storageB, err := NonDeduped(vdiskID, "", 8, true, clusterB, clusterA)
+	storageB, err := NonDeduped(vdiskID, "", 8, clusterB, clusterA)
 	if err != nil || storageB == nil {
 		t.Fatalf("storageB could not be created: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestNonDedupedStorageTemplateServerDown(t *testing.T) {
 		t.Fatalf("couldn't create cluster (a): %v", err)
 	}
 
-	storageA, err := NonDeduped(vdiskID, "", 8, true, clusterA, ardb.NopCluster{})
+	storageA, err := NonDeduped(vdiskID, "", 8, clusterA, nil)
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestNonDedupedStorageTemplateServerDown(t *testing.T) {
 		t.Fatalf("couldn't create cluster (B): %v", err)
 	}
 
-	storageB, err := NonDeduped(vdiskID, "", 8, true, clusterB, clusterA)
+	storageB, err := NonDeduped(vdiskID, "", 8, clusterB, clusterA)
 	if err != nil || storageB == nil {
 		t.Fatalf("storageB could not be created: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestListNonDedupedBlockIndices(t *testing.T) {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}
 
-	storage, err := NonDeduped(vdiskID, "", blockSize, false, cluster, nil)
+	storage, err := NonDeduped(vdiskID, "", blockSize, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}

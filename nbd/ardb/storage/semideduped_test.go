@@ -32,7 +32,7 @@ func TestSemiDedupedContentBasic(t *testing.T) {
 	func() {
 		template, err := Deduped(
 			"template", blockCount,
-			ardb.DefaultLBACacheLimit, false, templateCluster, nil)
+			ardb.DefaultLBACacheLimit, templateCluster, nil)
 		if err != nil || template == nil {
 			t.Fatalf("template storage could not be created: %v", err)
 		}

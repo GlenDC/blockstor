@@ -12,12 +12,12 @@ import (
 
 // SemiDeduped returns a semi deduped BlockStorage
 func SemiDeduped(vdiskID string, blockSize, lbaCacheLimit int64, cluster, templateCluster ardb.StorageCluster) (BlockStorage, error) {
-	templateStorage, err := Deduped(vdiskID, blockSize, lbaCacheLimit, true, cluster, templateCluster)
+	templateStorage, err := Deduped(vdiskID, blockSize, lbaCacheLimit, cluster, templateCluster)
 	if err != nil {
 		return nil, err
 	}
 
-	userStorage, err := NonDeduped(vdiskID, "", blockSize, false, cluster, nil)
+	userStorage, err := NonDeduped(vdiskID, "", blockSize, cluster, nil)
 	if err != nil {
 		templateStorage.Close()
 		return nil, err

@@ -12,7 +12,7 @@ import (
 )
 
 // NonDeduped returns a non deduped BlockStorage
-func NonDeduped(vdiskID, templateVdiskID string, blockSize int64, templateSupport bool, cluster, templateCluster ardb.StorageCluster) (BlockStorage, error) {
+func NonDeduped(vdiskID, templateVdiskID string, blockSize int64, cluster, templateCluster ardb.StorageCluster) (BlockStorage, error) {
 	// create the nondeduped storage with the info we know for sure
 	nondeduped := &nonDedupedStorage{
 		blockSize:       blockSize,
@@ -23,15 +23,15 @@ func NonDeduped(vdiskID, templateVdiskID string, blockSize int64, templateSuppor
 	}
 
 	// define the getContent logic, based on whether or not we support a template cluster
-	if templateSupport {
+	if isInterfaceValueNil(templateCluster) {
+		nondeduped.getContent = nondeduped.getPrimaryContent
+	} else {
 		nondeduped.getContent = nondeduped.getPrimaryOrTemplateContent
 		if templateVdiskID == "" {
 			nondeduped.templateVdiskID = vdiskID
 		}
 		nondeduped.templateStorageKey = nonDedupedStorageKey(nondeduped.templateVdiskID)
 		nondeduped.templateCluster = templateCluster
-	} else {
-		nondeduped.getContent = nondeduped.getPrimaryContent
 	}
 
 	return nondeduped, nil
