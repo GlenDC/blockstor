@@ -94,7 +94,7 @@ func TestDedupedContent(t *testing.T) {
 		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
 	}
 
-	storage, err := Deduped(vdiskID, 8, ardb.DefaultLBACacheLimit, false, cluster, nil)
+	storage, err := Deduped(vdiskID, 8, ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestDedupedContentForceFlush(t *testing.T) {
 		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
 	}
 
-	storage, err := Deduped(vdiskID, 8, ardb.DefaultLBACacheLimit, false, cluster, nil)
+	storage, err := Deduped(vdiskID, 8, ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestDedupedDeadlock(t *testing.T) {
 		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
 	}
 
-	storage, err := Deduped(vdiskID, blockSize, ardb.DefaultLBACacheLimit, false, cluster, nil)
+	storage, err := Deduped(vdiskID, blockSize, ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestGetPrimaryOrTemplateContent(t *testing.T) {
 		t.Fatalf("in-memory ardb cluster (a) could not be created: %v", err)
 	}
 	storageA, err := Deduped(
-		vdiskIDA, 8, ardb.DefaultLBACacheLimit, true, clusterA, ardb.NopCluster{})
+		vdiskIDA, 8, ardb.DefaultLBACacheLimit, clusterA, ardb.NopCluster{})
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestGetPrimaryOrTemplateContent(t *testing.T) {
 		t.Fatalf("in-memory ardb cluster (b) could not be created: %v", err)
 	}
 	storageB, err := Deduped(
-		vdiskIDB, 8, ardb.DefaultLBACacheLimit, true, clusterB, clusterA)
+		vdiskIDB, 8, ardb.DefaultLBACacheLimit, clusterB, clusterA)
 	if err != nil || storageB == nil {
 		t.Fatalf("storageB could not be created: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestDedupedStorageTemplateServerDown(t *testing.T) {
 	}
 	storageA, err := Deduped(
 		vdiskIDA, blockSize,
-		ardb.DefaultLBACacheLimit, false, clusterA, ardb.NopCluster{})
+		ardb.DefaultLBACacheLimit, clusterA, nil)
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestDedupedStorageTemplateServerDown(t *testing.T) {
 	}
 	storageB, err := Deduped(
 		vdiskIDB, blockSize,
-		ardb.DefaultLBACacheLimit, true, clusterB, clusterA)
+		ardb.DefaultLBACacheLimit, clusterB, clusterA)
 	if err != nil || storageB == nil {
 		t.Fatalf("storageB could not be created: %v", err)
 	}
@@ -514,8 +514,7 @@ func TestListDedupedBlockIndices(t *testing.T) {
 	cluster, err := ardb.NewCluster(clusterConfig, nil)
 
 	storage, err := Deduped(
-		vdiskID, blockSize,
-		ardb.DefaultLBACacheLimit, false, cluster, nil)
+		vdiskID, blockSize, ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}

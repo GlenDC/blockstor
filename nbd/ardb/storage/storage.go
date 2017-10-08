@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -78,7 +79,6 @@ func NewBlockStorage(cfg BlockStorageConfig, cluster, templateCluster ardb.Stora
 			cfg.VdiskID,
 			cfg.BlockSize,
 			cfg.LBACacheLimit,
-			vdiskType.TemplateSupport(),
 			cluster,
 			templateCluster)
 
@@ -87,7 +87,6 @@ func NewBlockStorage(cfg BlockStorageConfig, cluster, templateCluster ardb.Stora
 			cfg.VdiskID,
 			cfg.TemplateVdiskID,
 			cfg.BlockSize,
-			vdiskType.TemplateSupport(),
 			cluster,
 			templateCluster)
 
@@ -467,4 +466,15 @@ func firstAvailableStorageServer(cfg config.StorageClusterConfig) (*config.Stora
 	}
 
 	return nil, ardb.ErrNoServersAvailable
+}
+
+// a slightly expensive helper function which allows
+// us to test if an interface value is nil or not
+func isInterfaceValueNil(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+
+	rv := reflect.ValueOf(v)
+	return rv.Kind() == reflect.Ptr && rv.IsNil()
 }

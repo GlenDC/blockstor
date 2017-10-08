@@ -15,7 +15,7 @@ import (
 )
 
 // Deduped returns a deduped BlockStorage
-func Deduped(vdiskID string, blockSize, lbaCacheLimit int64, templateSupport bool, cluster, templateCluster ardb.StorageCluster) (BlockStorage, error) {
+func Deduped(vdiskID string, blockSize, lbaCacheLimit int64, cluster, templateCluster ardb.StorageCluster) (BlockStorage, error) {
 	// define the LBA cache limit
 	cacheLimit := lbaCacheLimit
 	if cacheLimit < lba.BytesPerSector {
@@ -47,11 +47,11 @@ func Deduped(vdiskID string, blockSize, lbaCacheLimit int64, templateSupport boo
 	// getContent is ALWAYS defined,
 	// but the actual function used depends on
 	// whether or not this storage has template support.
-	if templateSupport {
+	if isInterfaceValueNil(templateCluster) {
+		dedupedStorage.getContent = dedupedStorage.getPrimaryContent
+	} else {
 		dedupedStorage.getContent = dedupedStorage.getPrimaryOrTemplateContent
 		dedupedStorage.templateCluster = templateCluster
-	} else {
-		dedupedStorage.getContent = dedupedStorage.getPrimaryContent
 	}
 
 	return dedupedStorage, nil
