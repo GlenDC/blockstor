@@ -335,7 +335,7 @@ func copyDedupedSameServerCount(sourceID, targetID string, sourceCluster, target
 func copyDedupedDifferentServerCount(sourceID, targetID string, sourceCluster, targetCluster *config.StorageClusterConfig) error {
 	// create the target LBA sector storage,
 	// which will be used to store the source LBA sectors into the target ARDB cluster.
-	targetStorageCluster, err := ardb.NewCluster(*targetCluster, nil)
+	targetStorageCluster, err := ardb.NewCluster(targetCluster, nil)
 	if err != nil {
 		return err
 	}

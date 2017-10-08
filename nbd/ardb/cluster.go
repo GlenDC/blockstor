@@ -19,13 +19,17 @@ type StorageCluster interface {
 }
 
 // NewCluster creates a new (ARDB) cluster.
-func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Cluster, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
+func NewCluster(cfg *config.StorageClusterConfig, dialer ConnectionDialer) (*Cluster, error) {
 	if dialer == nil {
 		dialer = new(StandardConnectionDialer)
+	}
+
+	if cfg == nil {
+		return &Cluster{dialer: dialer}, nil
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	return &Cluster{
@@ -86,6 +90,10 @@ func (cluster *Cluster) DoFor(objectIndex int64, action StorageAction) (interfac
 func (cluster *Cluster) connectionFor(objectIndex int64) (Conn, error) {
 	cluster.mux.RLock()
 	defer cluster.mux.RUnlock()
+
+	if cluster.serverCount == 0 {
+		return nil, ErrNoServersAvailable
+	}
 
 	serverIndex, err := ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverIsOnline)
 	if err != nil {
