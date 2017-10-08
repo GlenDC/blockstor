@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"testing"
 
+	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/redisstub"
 
 	"github.com/zero-os/0-Disk"
@@ -81,9 +82,14 @@ func TestBucketWithEmptyARDBStorage(t *testing.T) {
 		bucketSize        = bucketSectorCount * BytesPerSector
 	)
 
-	provider := redisstub.NewInMemoryRedisProvider(nil)
-	defer provider.Close()
-	ardbStorage := ARDBSectorStorage("foo", provider)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
+
+	ardbStorage := ARDBSectorStorage("foo", cluster)
 
 	bucket := createTestSectorBucket(bucketSize, ardbStorage)
 	if bucket == nil {
@@ -114,12 +120,6 @@ func TestBucketWithEmptyARDBStorage(t *testing.T) {
 				t.Fatal(sectorIndex, hashIndex, err)
 			}
 		}
-	}
-
-	// now flush to be sure all content is gone
-	err := bucket.Flush()
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	// now get all hashes, and make sure they are correct, should be fine

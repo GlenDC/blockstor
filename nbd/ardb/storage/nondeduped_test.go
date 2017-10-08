@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/garyburd/redigo/redis"
 	"github.com/stretchr/testify/assert"
+	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/redisstub"
@@ -16,16 +16,10 @@ import (
 
 // testNondedupContentExists tests if
 // the given content exists in the database
-func testNondedupContentExists(t *testing.T, provider ardb.DataConnProvider, vdiskID string, blockIndex int64, content []byte) {
-	conn, err := provider.DataConnection(0)
-	if err != nil {
-		debug.PrintStack()
-		t.Fatal(err)
-	}
-	defer conn.Close()
-
+func testNondedupContentExists(t *testing.T, cluster ardb.StorageCluster, vdiskID string, blockIndex int64, content []byte) {
 	storageKey := nonDedupedStorageKey(vdiskID)
-	contentReceived, err := redis.Bytes(conn.Do("HGET", storageKey, blockIndex))
+	contentReceived, err := ardb.Bytes(
+		cluster.DoFor(blockIndex, ardb.Command("HGET", storageKey, blockIndex)))
 	if err != nil {
 		debug.PrintStack()
 		t.Fatal(err)
@@ -40,16 +34,10 @@ func testNondedupContentExists(t *testing.T, provider ardb.DataConnProvider, vdi
 
 // testNondedupContentDoesNotExist tests if
 // the given content does not exist in the database
-func testNondedupContentDoesNotExist(t *testing.T, provider ardb.DataConnProvider, vdiskID string, blockIndex int64, content []byte) {
-	conn, err := provider.DataConnection(0)
-	if err != nil {
-		debug.PrintStack()
-		t.Fatal(err)
-	}
-	defer conn.Close()
-
+func testNondedupContentDoesNotExist(t *testing.T, cluster ardb.StorageCluster, vdiskID string, blockIndex int64, content []byte) {
 	storageKey := nonDedupedStorageKey(vdiskID)
-	contentReceived, err := redis.Bytes(conn.Do("HGET", storageKey, blockIndex))
+	contentReceived, err := ardb.Bytes(
+		cluster.DoFor(blockIndex, ardb.Command("HGET", storageKey, blockIndex)))
 
 	if err != nil || bytes.Compare(content, contentReceived) != 0 {
 		return
@@ -65,8 +53,14 @@ func TestNondedupedContent(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	redisProvider := redisstub.NewInMemoryRedisProvider(nil)
-	storage, err := NonDeduped(vdiskID, "", 8, false, redisProvider)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
+
+	storage, err := NonDeduped(vdiskID, "", 8, false, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -79,8 +73,14 @@ func TestNondedupedContentForceFlush(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	redisProvider := redisstub.NewInMemoryRedisProvider(nil)
-	storage, err := NonDeduped(vdiskID, "", 8, false, redisProvider)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
+
+	storage, err := NonDeduped(vdiskID, "", 8, false, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -96,8 +96,18 @@ func TestNonDedupedDeadlock(t *testing.T) {
 		blockCount = 512
 	)
 
-	redisProvider := redisstub.NewInMemoryRedisProvider(nil)
-	storage, err := NonDeduped(vdiskID, "", blockSize, false, redisProvider)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+
+	pool := ardb.NewPool(nil)
+	defer pool.Close()
+
+	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), pool)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
+
+	storage, err := NonDeduped(vdiskID, "", blockSize, false, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
@@ -114,14 +124,26 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	redisProviderA := redisstub.NewInMemoryRedisProvider(nil)
-	storageA, err := NonDeduped(vdiskID, "", 8, true, redisProviderA)
+	mrA := redisstub.NewMemoryRedis()
+	defer mrA.Close()
+	clusterA, err := ardb.NewCluster(mrA.StorageClusterConfig(), nil)
+	if err != nil {
+		t.Fatalf("couldn't create cluster (a): %v", err)
+	}
+
+	storageA, err := NonDeduped(vdiskID, "", 8, true, clusterA, ardb.NopCluster{})
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
 
-	redisProviderB := redisstub.NewInMemoryRedisProvider(redisProviderA)
-	storageB, err := NonDeduped(vdiskID, "", 8, true, redisProviderB)
+	mrB := redisstub.NewMemoryRedis()
+	defer mrB.Close()
+	clusterB, err := ardb.NewCluster(mrB.StorageClusterConfig(), nil)
+	if err != nil {
+		t.Fatalf("couldn't create cluster (b): %v", err)
+	}
+
+	storageB, err := NonDeduped(vdiskID, "", 8, true, clusterB, clusterA)
 	if err != nil || storageB == nil {
 		t.Fatalf("storageB could not be created: %v", err)
 	}
@@ -131,8 +153,8 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 	var testBlockIndex int64 // 0
 
 	// content shouldn't exist in either of the 2 volumes
-	testNondedupContentDoesNotExist(t, redisProviderA, vdiskID, testBlockIndex, testContent)
-	testNondedupContentDoesNotExist(t, redisProviderB, vdiskID, testBlockIndex, testContent)
+	testNondedupContentDoesNotExist(t, clusterA, vdiskID, testBlockIndex, testContent)
+	testNondedupContentDoesNotExist(t, clusterB, vdiskID, testBlockIndex, testContent)
 
 	// store content in storageA
 	err = storageA.SetBlock(testBlockIndex, testContent)
@@ -140,8 +162,8 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// content should now exist in storageA, but not yet in storageB
-	testNondedupContentExists(t, redisProviderA, vdiskID, testBlockIndex, testContent)
-	testNondedupContentDoesNotExist(t, redisProviderB, vdiskID, testBlockIndex, testContent)
+	testNondedupContentExists(t, clusterA, vdiskID, testBlockIndex, testContent)
+	testNondedupContentDoesNotExist(t, clusterB, vdiskID, testBlockIndex, testContent)
 
 	// getting content from storageA should be possible
 	content, err := storageA.GetBlock(testBlockIndex)
@@ -163,11 +185,11 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 
 	// content should now be in both storages
 	// as the template content should also have been stored in primary storage
-	testNondedupContentExists(t, redisProviderA, vdiskID, testBlockIndex, testContent)
+	testNondedupContentExists(t, clusterA, vdiskID, testBlockIndex, testContent)
 
 	// wait until the Get method saves the content async
 	time.Sleep(time.Millisecond * 200)
-	testNondedupContentExists(t, redisProviderB, vdiskID, testBlockIndex, testContent)
+	testNondedupContentExists(t, clusterB, vdiskID, testBlockIndex, testContent)
 
 	// let's store some new content in storageB
 	testContent = []byte{9, 2}
@@ -178,14 +200,14 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// content should now exist in storageB, but not yet in storageA
-	testNondedupContentExists(t, redisProviderB, vdiskID, testBlockIndex, testContent)
-	testNondedupContentDoesNotExist(t, redisProviderA, vdiskID, testBlockIndex, testContent)
+	testNondedupContentExists(t, clusterB, vdiskID, testBlockIndex, testContent)
+	testNondedupContentDoesNotExist(t, clusterA, vdiskID, testBlockIndex, testContent)
 
 	// let's now try to get it from storageA
 	// this should fail (manifested as nil-content), as storageA has no template,
 	// and the content isn't available in primary storage
 	content, err = storageA.GetBlock(testBlockIndex)
-	if err != nil {
+	if err != nil && err != ardb.ErrNoServersAvailable {
 		t.Fatal(err)
 	}
 	if content != nil {
@@ -203,12 +225,12 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 
 	// and we can also do our direct test to ensure the content
 	// only exists in storageB
-	testNondedupContentExists(t, redisProviderB, vdiskID, testBlockIndex, testContent)
-	testNondedupContentDoesNotExist(t, redisProviderA, vdiskID, testBlockIndex, testContent)
+	testNondedupContentExists(t, clusterB, vdiskID, testBlockIndex, testContent)
+	testNondedupContentDoesNotExist(t, clusterA, vdiskID, testBlockIndex, testContent)
 
 	// if we now make sure storageA, has storageB as its template,
 	// our previous Get attempt /will/ work
-	redisProviderA.SetTemplatePool(redisProviderB)
+	storageA.(*nonDedupedStorage).templateCluster = clusterB
 
 	content, err = storageA.GetBlock(testBlockIndex)
 	if err != nil {
@@ -220,11 +242,11 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 
 	// and also our direct test should show that
 	// the content now exists in both storages
-	testNondedupContentExists(t, redisProviderB, vdiskID, testBlockIndex, testContent)
+	testNondedupContentExists(t, clusterB, vdiskID, testBlockIndex, testContent)
 
 	// wait until the Get method saves the content async
 	time.Sleep(time.Millisecond * 200)
-	testNondedupContentExists(t, redisProviderA, vdiskID, testBlockIndex, testContent)
+	testNondedupContentExists(t, clusterA, vdiskID, testBlockIndex, testContent)
 }
 
 // test feature implemented for
@@ -234,14 +256,26 @@ func TestNonDedupedStorageTemplateServerDown(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	redisProviderA := redisstub.NewInMemoryRedisProvider(nil)
-	storageA, err := NonDeduped(vdiskID, "", 8, true, redisProviderA)
+	mrA := redisstub.NewMemoryRedis()
+	defer mrA.Close()
+	clusterA, err := ardb.NewCluster(mrA.StorageClusterConfig(), nil)
+	if err != nil {
+		t.Fatalf("couldn't create cluster (a): %v", err)
+	}
+
+	storageA, err := NonDeduped(vdiskID, "", 8, true, clusterA, ardb.NopCluster{})
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
 
-	redisProviderB := redisstub.NewInMemoryRedisProvider(redisProviderA)
-	storageB, err := NonDeduped(vdiskID, "", 8, true, redisProviderB)
+	mrB := redisstub.NewMemoryRedis()
+	defer mrB.Close()
+	clusterB, err := ardb.NewCluster(mrB.StorageClusterConfig(), nil)
+	if err != nil {
+		t.Fatalf("couldn't create cluster (B): %v", err)
+	}
+
+	storageB, err := NonDeduped(vdiskID, "", 8, true, clusterB, clusterA)
 	if err != nil || storageB == nil {
 		t.Fatalf("storageB could not be created: %v", err)
 	}
@@ -276,63 +310,15 @@ func TestNonDedupedStorageTemplateServerDown(t *testing.T) {
 	}
 
 	// now mark template invalid, and that should make it return an expected error instead
-	redisProviderB.DisableTemplateConnection(0)
+	clusterA.SetServerState(0, config.StorageServerStateOffline)
 	content, err = storageB.GetBlock(someIndexPlusOne)
 	if len(content) != 0 {
 		t.Fatalf("content should be empty but was was: %v",
 			content)
 	}
-	if err != ardb.ErrServerMarkedInvalid {
+	if err != ardb.ErrNoServersAvailable {
 		t.Fatalf("error should be '%v', but instead was: %v",
-			ardb.ErrServerMarkedInvalid, err)
-	}
-}
-
-func TestGetNondedupedTemplateContentDeadlock(t *testing.T) {
-	const (
-		vdiskID    = "a"
-		blockSize  = 128
-		blockCount = 256
-	)
-
-	var (
-		err error
-	)
-
-	redisProviderA := redisstub.NewInMemoryRedisProvider(nil)
-	storageA, err := NonDeduped(vdiskID, "", blockSize, false, redisProviderA)
-	if err != nil || storageA == nil {
-		t.Fatalf("storageA could not be created: %v", err)
-	}
-
-	redisProviderB := redisstub.NewInMemoryRedisProvider(redisProviderA)
-	storageB, err := NonDeduped(vdiskID, "", blockSize, true, redisProviderB)
-	if err != nil || storageB == nil {
-		t.Fatalf("storageB could not be created: %v", err)
-	}
-
-	var contentArray [blockCount][]byte
-
-	// store a lot of content in storageA
-	for i := int64(0); i < blockCount; i++ {
-		contentArray[i] = make([]byte, blockSize)
-		rand.Read(contentArray[i])
-		err = storageA.SetBlock(i, contentArray[i])
-		if err != nil {
-			t.Fatal(i, err)
-		}
-	}
-
-	// now restore all content
-	// which will test the deadlock of async restoring
-	for i := int64(0); i < blockCount; i++ {
-		content, err := storageB.GetBlock(i)
-		if err != nil {
-			t.Fatal(i, err)
-		}
-		if bytes.Compare(contentArray[i], content) != 0 {
-			t.Fatal(i, "unexpected content", contentArray[i], content)
-		}
+			ardb.ErrNoServersAvailable, err)
 	}
 }
 
@@ -419,16 +405,21 @@ func TestListNonDedupedBlockIndices(t *testing.T) {
 		blockCount = 16
 	)
 
-	redisProvider := redisstub.NewInMemoryRedisProviderMultiServers(4, 0)
-	defer redisProvider.Close()
-	clusterConfig := redisProvider.ClusterConfig()
+	mrs := redisstub.NewMemoryRedisSlice(4)
+	defer mrs.Close()
 
-	storage, err := NonDeduped(vdiskID, "", blockSize, false, redisProvider)
+	clusterConfig := mrs.StorageClusterConfig()
+	cluster, err := ardb.NewCluster(clusterConfig, nil)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
+
+	storage, err := NonDeduped(vdiskID, "", blockSize, false, cluster, nil)
 	if err != nil || storage == nil {
 		t.Fatalf("storage could not be created: %v", err)
 	}
 
-	indices, err := ListNonDedupedBlockIndices(vdiskID, clusterConfig)
+	indices, err := ListNonDedupedBlockIndices(vdiskID, &clusterConfig)
 	if err == nil {
 		t.Fatalf("expected an error, as no indices exist yet: %v", indices)
 	}
@@ -464,7 +455,7 @@ func TestListNonDedupedBlockIndices(t *testing.T) {
 		}
 
 		// now test if listing the indices is correct
-		indices, err := ListNonDedupedBlockIndices(vdiskID, clusterConfig)
+		indices, err := ListNonDedupedBlockIndices(vdiskID, &clusterConfig)
 		if err != nil {
 			t.Fatalf("couldn't list deduped block indices (step %d): %v", i, err)
 		}
@@ -501,7 +492,7 @@ func TestListNonDedupedBlockIndices(t *testing.T) {
 		expectedIndices = append(expectedIndices[:ci], expectedIndices[ci+1:]...)
 
 		// now test if listing the indices is still correct
-		indices, err := ListNonDedupedBlockIndices(vdiskID, clusterConfig)
+		indices, err := ListNonDedupedBlockIndices(vdiskID, &clusterConfig)
 		if err != nil {
 			t.Fatalf("couldn't list deduped block indices (step %d): %v", i, err)
 		}
