@@ -519,7 +519,7 @@ func TestListDedupedBlockIndices(t *testing.T) {
 		t.Fatalf("storage could not be created: %v", err)
 	}
 
-	indices, err := ListDedupedBlockIndices(vdiskID, &clusterConfig)
+	indices, err := ListDedupedBlockIndices(vdiskID, clusterConfig)
 	if err == nil {
 		t.Fatalf("expected an error, as no indices exist yet: %v", indices)
 	}
@@ -554,7 +554,7 @@ func TestListDedupedBlockIndices(t *testing.T) {
 		}
 
 		// now test if listing the indices is correct
-		indices, err := ListDedupedBlockIndices(vdiskID, &clusterConfig)
+		indices, err := ListDedupedBlockIndices(vdiskID, clusterConfig)
 		if err != nil {
 			t.Fatalf("couldn't list deduped block indices (step %d): %v", i, err)
 		}
@@ -589,7 +589,7 @@ func TestListDedupedBlockIndices(t *testing.T) {
 		expectedIndices = append(expectedIndices[:ci], expectedIndices[ci+1:]...)
 
 		// now test if listing the indices is still correct
-		indices, err := ListDedupedBlockIndices(vdiskID, &clusterConfig)
+		indices, err := ListDedupedBlockIndices(vdiskID, clusterConfig)
 		if err != nil {
 			t.Fatalf("couldn't list deduped block indices (step %d): %v", i, err)
 		}
@@ -637,17 +637,17 @@ func TestCopyDedupedDifferentServerCount(t *testing.T) {
 
 	// test copying to a target cluster with less servers available
 	testCopyDedupedDifferentServerCount(assert, indices, "source", "target",
-		&sourceStorageConfig, sourceSectorStorage, 3)
+		sourceStorageConfig, sourceSectorStorage, 3)
 	testCopyDedupedDifferentServerCount(assert, indices, "source", "target",
-		&sourceStorageConfig, sourceSectorStorage, 2)
+		sourceStorageConfig, sourceSectorStorage, 2)
 	testCopyDedupedDifferentServerCount(assert, indices, "source", "target",
-		&sourceStorageConfig, sourceSectorStorage, 1)
+		sourceStorageConfig, sourceSectorStorage, 1)
 
 	// test coping to a target cluster with more servers available
 	testCopyDedupedDifferentServerCount(assert, indices, "source", "target",
-		&sourceStorageConfig, sourceSectorStorage, 5)
+		sourceStorageConfig, sourceSectorStorage, 5)
 	testCopyDedupedDifferentServerCount(assert, indices, "source", "target",
-		&sourceStorageConfig, sourceSectorStorage, 8)
+		sourceStorageConfig, sourceSectorStorage, 8)
 }
 
 func testCopyDedupedDifferentServerCount(assert *assert.Assertions, indices []int64, sourceID, targetID string, sourceCluster *config.StorageClusterConfig, sourceSectorStorage lba.SectorStorage, targetServerCount int) {
@@ -660,7 +660,7 @@ func testCopyDedupedDifferentServerCount(assert *assert.Assertions, indices []in
 	targetStorageConfig := targetMRSlice.StorageClusterConfig()
 
 	// copy the sectors
-	err := copyDedupedDifferentServerCount(sourceID, targetID, sourceCluster, &targetStorageConfig)
+	err := copyDedupedDifferentServerCount(sourceID, targetID, sourceCluster, targetStorageConfig)
 	if !assert.NoError(err) {
 		return
 	}
