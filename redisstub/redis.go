@@ -5,17 +5,14 @@ package redisstub
 
 import (
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
-	"time"
 
 	"github.com/garyburd/redigo/redis"
 	lediscfg "github.com/siddontang/ledisdb/config"
 	"github.com/siddontang/ledisdb/server"
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
-	"github.com/zero-os/0-Disk/nbd/ardb"
 )
 
 // NewMemoryRedis creates a new in-memory redis stub.
@@ -37,29 +34,20 @@ func NewMemoryRedis() *MemoryRedis {
 		log.Fatalf("couldn't create embedded ledisdb: %s", err.Error())
 	}
 
-	return &MemoryRedis{
+	mr := &MemoryRedis{
 		app:     app,
 		addr:    app.Address(),
 		datadir: cfg.DataDir,
 	}
+	go mr.listen()
+	return mr
 }
 
-//MemoryRedis is an in memory redis connection implementation
+// MemoryRedis is an in memory redis connection implementation
 type MemoryRedis struct {
 	app     *server.App
 	addr    string
 	datadir string
-}
-
-// Listen to any incoming TCP requests,
-// and process them in the embedded Go Redis Server.
-func (mr *MemoryRedis) Listen() {
-	if mr == nil {
-		return
-	}
-
-	log.Info("embedded LedisDB Server ready and listening at ", mr.addr)
-	mr.app.Run()
 }
 
 // Dial to the embedded Go Redis Server,
@@ -83,8 +71,8 @@ func (mr *MemoryRedis) Close() {
 	mr.app.Close()
 }
 
-// Address returns the tcp (local) address of this MemoryRedis server
-func (mr *MemoryRedis) Address() string {
+// address returns the tcp (local) address of this MemoryRedis server
+func (mr *MemoryRedis) address() string {
 	if mr == nil {
 		return ""
 	}
@@ -92,328 +80,59 @@ func (mr *MemoryRedis) Address() string {
 	return mr.addr
 }
 
-// NewInMemoryRedisProvider returns an ARDB Connection Provider,
-// which uses an in-memory ARDB for all its purposes.
-// See documentation for NewMemoryRedis more information.
-// WARNING: should be used for testing/dev purposes only!
-func NewInMemoryRedisProvider(template *InMemoryRedisProvider) *InMemoryRedisProvider {
-	provider := new(InMemoryRedisProvider)
-
-	provider.memRedis = NewMemoryRedis()
-	go provider.memRedis.Listen()
-
-	provider.primaryPool = newInMemoryRedisPool(func() (redis.Conn, error) {
-		return provider.memRedis.Dial("", 0)
-	})
-
-	provider.templatePool = newInMemoryRedisPool(func() (redis.Conn, error) {
-		return provider.templateMemRedis.Dial("", 0)
-	})
-
-	if template != nil {
-		provider.templateMemRedis = template.memRedis
+// StorageClusterConfig returns a new StorageClusterConfig,
+// usable to connect to this in-memory redis-compatible ledisdb.
+func (mr *MemoryRedis) StorageClusterConfig() config.StorageClusterConfig {
+	return config.StorageClusterConfig{
+		Servers: []config.StorageServerConfig{
+			config.StorageServerConfig{Address: mr.address()},
+		},
 	}
-
-	return provider
 }
 
-// InMemoryRedisProvider provides a in memory provider
-// for any redis connection.
-// While it is safe to create this struct directly,
-// it is recommended to create it using NewInMemoryRedisProvider.
-// WARNING: should be used for testing/dev purposes only!
-type InMemoryRedisProvider struct {
-	memRedis                  *MemoryRedis
-	templateMemRedis          *MemoryRedis
-	primaryPool, templatePool *redis.Pool
+// Listen to any incoming TCP requests,
+// and process them in the embedded Go Redis Server.
+func (mr *MemoryRedis) listen() {
+	log.Info("embedded LedisDB Server ready and listening at ", mr.addr)
+	mr.app.Run()
 }
 
-// DataConnection implements ConnProvider.DataConnection
-func (rp *InMemoryRedisProvider) DataConnection(index int64) (ardb.Connection, error) {
-	if rp.primaryPool == nil {
-		return nil, ardb.ErrServerMarkedInvalid
+// NewMemoryRedisSlice creates a slice of in-memory redis stubs.
+func NewMemoryRedisSlice(n int) *MemoryRedisSlice {
+	if n <= 0 {
+		panic("invalid memory redis slice count")
 	}
 
-	return newInMemoryARDBConnection(rp.primaryPool, rp.memRedis), nil
+	var slice []*MemoryRedis
+	for i := 0; i < n; i++ {
+		slice = append(slice, NewMemoryRedis())
+	}
+	return &MemoryRedisSlice{slice: slice}
 }
 
-// DisableDataConnection implements ConnProvider.DisableDataConnection
-func (rp *InMemoryRedisProvider) DisableDataConnection(serverIndex int64) bool {
-	if rp.primaryPool == nil {
-		return false
-	}
-
-	rp.primaryPool.Close()
-	rp.primaryPool = nil
-	return true
+// MemoryRedisSlice is a slice of in memory redis connection implementations
+type MemoryRedisSlice struct {
+	slice []*MemoryRedis
 }
 
-// MetadataConnection implements ConnProvider.MetadataConnection
-func (rp *InMemoryRedisProvider) MetadataConnection() (ardb.Connection, error) {
-	if rp.primaryPool == nil {
-		return nil, ardb.ErrServerMarkedInvalid
+// StorageClusterConfig returns a new StorageClusterConfig,
+// usable to connect to this slice of in-memory redis-compatible ledisdb.
+func (mrs *MemoryRedisSlice) StorageClusterConfig() config.StorageClusterConfig {
+	var cfg config.StorageClusterConfig
+	if mrs == nil || mrs.slice == nil {
+		return cfg
 	}
 
-	return newInMemoryARDBConnection(rp.primaryPool, rp.memRedis), nil
-}
-
-// DisableMetadataConnection implements ConnProvider.DisableMetadataConnection
-func (rp *InMemoryRedisProvider) DisableMetadataConnection(serverIndex int64) bool {
-	if rp.primaryPool == nil {
-		return false
+	for _, server := range mrs.slice {
+		cfg.Servers = append(cfg.Servers,
+			config.StorageServerConfig{Address: server.address()})
 	}
-
-	rp.primaryPool.Close()
-	rp.primaryPool = nil
-	return true
-}
-
-// TemplateConnection implements ConnProvider.TemplateConnection
-func (rp *InMemoryRedisProvider) TemplateConnection(index int64) (ardb.Connection, error) {
-	if rp.templateMemRedis == nil {
-		return nil, ardb.ErrTemplateClusterNotSpecified
-	}
-	if rp.templatePool == nil {
-		return nil, ardb.ErrServerMarkedInvalid
-	}
-
-	return newInMemoryARDBConnection(rp.templatePool, rp.templateMemRedis), nil
-}
-
-// DisableTemplateConnection implements ConnProvider.DisableTemplateConnection
-func (rp *InMemoryRedisProvider) DisableTemplateConnection(serverIndex int64) bool {
-	if rp.templatePool == nil {
-		return false
-	}
-
-	rp.templatePool.Close()
-	rp.templatePool = nil
-	return true
-}
-
-// PrimaryAddress returns the address of the primary in-memory ardb server.
-func (rp *InMemoryRedisProvider) PrimaryAddress() string {
-	return rp.memRedis.Address()
-}
-
-// TemplateAddress returns the address of the template in-memory ardb server,
-// or returns false if no template is defined instead.
-func (rp *InMemoryRedisProvider) TemplateAddress() (string, bool) {
-	if rp.templateMemRedis == nil {
-		return "", false
-	}
-
-	return rp.templateMemRedis.Address(), true
+	return cfg
 }
 
 // Close implements ConnProvider.Close
-func (rp *InMemoryRedisProvider) Close() error {
-	rp.memRedis.Close()
-	rp.templateMemRedis.Close()
-	return nil
-}
-
-// SetTemplatePool allows you to set the template source for this provider,
-// using the primary source of the given provider.
-// The template source of this provider will be unset in case nil is passed in as an argument.
-func (rp *InMemoryRedisProvider) SetTemplatePool(template *InMemoryRedisProvider) {
-	if template == nil {
-		rp.templateMemRedis = nil
-		return
-	}
-
-	rp.templateMemRedis = template.memRedis
-}
-
-func newInMemoryARDBConnection(pool *redis.Pool, mr *MemoryRedis) ardb.Connection {
-	return &inMemoryARDBConnection{
-		Conn:    pool.Get(),
-		address: mr.Address(),
-	}
-}
-
-type inMemoryARDBConnection struct {
-	redis.Conn
-	address     string
-	serverIndex int64
-}
-
-// ConnectionConfig implements Connection.ConnectionConfig
-func (conn *inMemoryARDBConnection) ConnectionConfig() config.StorageServerConfig {
-	return config.StorageServerConfig{
-		Address: conn.address,
-	}
-}
-
-// ServerIndex implements Connection.ServerIndex
-func (conn *inMemoryARDBConnection) ServerIndex() int64 {
-	return conn.serverIndex
-}
-
-func newInMemoryRedisPool(dial func() (redis.Conn, error)) *redis.Pool {
-	return &redis.Pool{
-		MaxActive:   10,
-		MaxIdle:     10,
-		Wait:        true,
-		IdleTimeout: 5 * time.Second,
-		Dial:        dial,
-	}
-}
-
-// NewInMemoryRedisProviderMultiServers returns an ARDB Connection Provider,
-// which uses multiple in-memory ARDB for all its purposes.
-// See documentation for NewMemoryRedis more information.
-// WARNING: should be used for testing/dev purposes only!
-func NewInMemoryRedisProviderMultiServers(dataServers, templateServers int) *InMemoryRedisProviderMultiServers {
-	if dataServers < 1 {
-		panic("no data servers given, while we require at least one")
-	}
-
-	var memRedisSlice []*MemoryRedis
-	for i := 0; i < dataServers; i++ {
-		memRedis := NewMemoryRedis()
-		go memRedis.Listen()
-		memRedisSlice = append(memRedisSlice, memRedis)
-	}
-
-	var templateMemRedisSlice []*MemoryRedis
-	for i := 0; i < templateServers; i++ {
-		memRedis := NewMemoryRedis()
-		go memRedis.Listen()
-		templateMemRedisSlice = append(templateMemRedisSlice, memRedis)
-	}
-
-	return &InMemoryRedisProviderMultiServers{
-		memRedisSlice:         memRedisSlice,
-		templateMemRedisSlice: templateMemRedisSlice,
-	}
-}
-
-// InMemoryRedisProviderMultiServers provides a in memory provider
-// for any redis connection, using multiple in-memory ardb servers.
-// While it is safe to create this struct directly,
-// it is recommended to create it using NewInMemoryRedisProviderMultiServers.
-// WARNING: should be used for testing/dev purposes only!
-type InMemoryRedisProviderMultiServers struct {
-	memRedisSlice         []*MemoryRedis
-	templateMemRedisSlice []*MemoryRedis
-}
-
-// DataConnection implements ConnProvider.DataConnection
-func (rp *InMemoryRedisProviderMultiServers) DataConnection(index int64) (ardb.Connection, error) {
-	i := index % int64(len(rp.memRedisSlice))
-	addr := rp.memRedisSlice[i].Address()
-	conn, err := redis.Dial("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-	return &inMemoryARDBConnection{conn, addr, i}, nil
-}
-
-// DisableDataConnection implements ConnProvider.DisableDataConnection
-func (rp *InMemoryRedisProviderMultiServers) DisableDataConnection(serverIndex int64) bool {
-	if serverIndex < 0 || serverIndex >= int64(len(rp.memRedisSlice)) {
-		panic(fmt.Errorf("can't disable data connection as index %d is out of bounds", serverIndex))
-	}
-
-	if rp.memRedisSlice[serverIndex] == nil {
-		return false
-	}
-
-	rp.memRedisSlice[serverIndex].Close()
-	rp.memRedisSlice[serverIndex] = nil
-	return true
-}
-
-// MetadataConnection implements ConnProvider.MetadataConnection
-func (rp *InMemoryRedisProviderMultiServers) MetadataConnection() (ardb.Connection, error) {
-	for index, memRedis := range rp.memRedisSlice {
-		if memRedis != nil {
-			addr := memRedis.Address()
-			conn, err := redis.Dial("tcp", addr)
-			if err == nil {
-				return &inMemoryARDBConnection{conn, addr, int64(index)}, nil
-			}
-		}
-	}
-
-	return nil, errors.New("no storage server available")
-}
-
-// DisableMetadataConnection implements ConnProvider.DisableMetadataConnection
-func (rp *InMemoryRedisProviderMultiServers) DisableMetadataConnection(serverIndex int64) bool {
-	if serverIndex < 0 || serverIndex >= int64(len(rp.memRedisSlice)) {
-		panic(fmt.Errorf("can't disable metadata connection as index %d is out of bounds", serverIndex))
-	}
-
-	if rp.memRedisSlice[serverIndex] == nil {
-		return false
-	}
-
-	rp.memRedisSlice[serverIndex].Close()
-	rp.memRedisSlice[serverIndex] = nil
-	return true
-}
-
-// TemplateConnection implements ConnProvider.TemplateConnection
-func (rp *InMemoryRedisProviderMultiServers) TemplateConnection(index int64) (ardb.Connection, error) {
-	n := len(rp.templateMemRedisSlice)
-	if n < 1 {
-		return nil, ardb.ErrTemplateClusterNotSpecified
-	}
-
-	i := index % int64(n)
-	memRedis := rp.templateMemRedisSlice[i]
-	if memRedis == nil {
-		return nil, ardb.ErrServerMarkedInvalid
-	}
-
-	addr := memRedis.Address()
-	conn, err := redis.Dial("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-	return &inMemoryARDBConnection{conn, addr, i}, nil
-}
-
-// DisableTemplateConnection implements ConnProvider.DisableTemplateConnection
-func (rp *InMemoryRedisProviderMultiServers) DisableTemplateConnection(serverIndex int64) bool {
-	if serverIndex < 0 || serverIndex >= int64(len(rp.templateMemRedisSlice)) {
-		panic(fmt.Errorf("can't disable template connection as index %d is out of bounds", serverIndex))
-	}
-
-	if rp.templateMemRedisSlice[serverIndex] == nil {
-		return false
-	}
-
-	rp.templateMemRedisSlice[serverIndex].Close()
-	rp.templateMemRedisSlice[serverIndex] = nil
-	return true
-}
-
-// ClusterConfig returns the cluster config which
-// can be used to connect to the storage cluster which underlies this provider.
-func (rp *InMemoryRedisProviderMultiServers) ClusterConfig() *config.StorageClusterConfig {
-	cluster := new(config.StorageClusterConfig)
-
-	for _, memRedis := range rp.memRedisSlice {
-		cluster.Servers = append(cluster.Servers, config.StorageServerConfig{
-			Address: memRedis.Address(),
-		})
-	}
-
-	return cluster
-}
-
-// Close implements ConnProvider.Close
-func (rp *InMemoryRedisProviderMultiServers) Close() error {
-	for _, memRedis := range rp.memRedisSlice {
-		memRedis.Close()
-	}
-	for _, memRedis := range rp.templateMemRedisSlice {
-		if memRedis == nil {
-			continue
-		}
+func (mrs *MemoryRedisSlice) Close() error {
+	for _, memRedis := range mrs.slice {
 		memRedis.Close()
 	}
 	return nil

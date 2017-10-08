@@ -94,9 +94,6 @@ func (bucket *sectorBucket) Flush() error {
 		errors.AddError(bucket.storage.SetSector(entry.sectorIndex, entry.sector))
 	}
 
-	// flush all sectors ready for storage
-	errors.AddError(bucket.storage.Flush())
-
 	// clear bucket, which is something we want to do always
 	// as flushing is used only as a final action,
 	// if it fails, the user knows something is wrong,
@@ -154,10 +151,7 @@ func (bucket *sectorBucket) flushOldest() error {
 		entry := ent.Value.(*cacheEntry)
 		delete(bucket.sectors, entry.sectorIndex)
 
-		var errors flushError
-		errors.AddError(bucket.storage.SetSector(entry.sectorIndex, entry.sector))
-		errors.AddError(bucket.storage.Flush())
-		return errors.AsError()
+		return bucket.storage.SetSector(entry.sectorIndex, entry.sector)
 	}
 
 	return errBucketIsEmpty

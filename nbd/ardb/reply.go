@@ -6,6 +6,17 @@ import (
 	"github.com/garyburd/redigo/redis"
 )
 
+// Error is a helper that allows you to extract just the error from a reply.
+func Error(_ interface{}, err error) error {
+	return err
+}
+
+// Bytes is a helper that converts a command reply to a slice of bytes. If err
+// is not equal to nil, then Bytes returns nil,
+func Bytes(reply interface{}, err error) ([]byte, error) {
+	return redis.Bytes(reply, err)
+}
+
 // OptBytes tries to interpret the given reply as a byte slice,
 // however if no reply is returned, this function will return a nil slice,
 // rather than an error.

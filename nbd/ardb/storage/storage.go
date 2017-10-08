@@ -64,7 +64,7 @@ func (cfg *BlockStorageConfig) Validate() error {
 }
 
 // NewBlockStorage returns the correct block storage based on the given VdiskConfig.
-func NewBlockStorage(cfg BlockStorageConfig, provider ardb.ConnProvider) (storage BlockStorage, err error) {
+func NewBlockStorage(cfg BlockStorageConfig, cluster, templateCluster ardb.StorageCluster) (storage BlockStorage, err error) {
 	err = cfg.Validate()
 	if err != nil {
 		return
@@ -79,7 +79,8 @@ func NewBlockStorage(cfg BlockStorageConfig, provider ardb.ConnProvider) (storag
 			cfg.BlockSize,
 			cfg.LBACacheLimit,
 			vdiskType.TemplateSupport(),
-			provider)
+			cluster,
+			templateCluster)
 
 	case config.StorageNonDeduped:
 		return NonDeduped(
@@ -87,14 +88,16 @@ func NewBlockStorage(cfg BlockStorageConfig, provider ardb.ConnProvider) (storag
 			cfg.TemplateVdiskID,
 			cfg.BlockSize,
 			vdiskType.TemplateSupport(),
-			provider)
+			cluster,
+			templateCluster)
 
 	case config.StorageSemiDeduped:
 		return SemiDeduped(
 			cfg.VdiskID,
 			cfg.BlockSize,
 			cfg.LBACacheLimit,
-			provider)
+			cluster,
+			templateCluster)
 
 	default:
 		return nil, fmt.Errorf(
@@ -144,7 +147,7 @@ func ListBlockIndices(id string, t config.VdiskType, ccfg *config.StorageCluster
 func ScanForAvailableVdisks(cfg config.StorageServerConfig) ([]string, error) {
 	log.Debugf("connection to ardb at %s (db: %d)",
 		cfg.Address, cfg.Database)
-	conn, err := ardb.GetConnection(cfg)
+	conn, err := ardb.Dial(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't connect to the ardb: %s", err.Error())
 	}
@@ -338,7 +341,7 @@ func (ops storageOpPipeline) Apply(cfg config.StorageServerConfig) error {
 		return nil
 	}
 
-	conn, err := ardb.GetConnection(cfg)
+	conn, err := ardb.Dial(cfg)
 	if err != nil {
 		return err
 	}
@@ -453,4 +456,15 @@ func dedupInt64s(s []int64) []int64 {
 	}
 
 	return s
+}
+
+// firstAvailableStorageServer returns the first available (ARDB) storage server.
+func firstAvailableStorageServer(cfg config.StorageClusterConfig) (*config.StorageServerConfig, error) {
+	for _, serverCfg := range cfg.Servers {
+		if serverCfg.State == config.StorageServerStateOnline {
+			return &serverCfg, nil
+		}
+	}
+
+	return nil, ardb.ErrNoServersAvailable
 }

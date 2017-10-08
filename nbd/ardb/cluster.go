@@ -66,10 +66,7 @@ func (cluster *Cluster) connection() (Conn, error) {
 
 	for _, server := range cluster.servers {
 		if server.State == config.StorageServerStateOnline {
-			return cluster.dialer.Dial(ConnConfig{
-				Address:  server.Address,
-				Database: server.Database,
-			})
+			return cluster.dialer.Dial(server)
 		}
 	}
 
@@ -96,10 +93,7 @@ func (cluster *Cluster) connectionFor(objectIndex int64) (Conn, error) {
 	}
 
 	server := cluster.servers[serverIndex]
-	return cluster.dialer.Dial(ConnConfig{
-		Address:  server.Address,
-		Database: server.Database,
-	})
+	return cluster.dialer.Dial(server)
 }
 
 // SetStorageconfig allows you to overwrite the currently used storage config
@@ -262,10 +256,7 @@ func (pair *ClusterPair) connection() (Conn, error) {
 		// check if primary server is online
 		server = pair.fstServers[index]
 		if server.State == config.StorageServerStateOnline {
-			return pair.dialer.Dial(ConnConfig{
-				Address:  server.Address,
-				Database: server.Database,
-			})
+			return pair.dialer.Dial(server)
 		}
 		if server.State != config.StorageServerStateOffline || pair.sndServerCount == 0 {
 			continue
@@ -275,10 +266,7 @@ func (pair *ClusterPair) connection() (Conn, error) {
 		// let's try to get that slave server
 		server = pair.sndServers[index]
 		if server.State == config.StorageServerStateOnline {
-			return pair.dialer.Dial(ConnConfig{
-				Address:  server.Address,
-				Database: server.Database,
-			})
+			return pair.dialer.Dial(server)
 		}
 	}
 
@@ -306,17 +294,11 @@ func (pair *ClusterPair) connectionFor(objectIndex int64) (Conn, error) {
 
 	server := pair.fstServers[serverIndex]
 	if server.State == config.StorageServerStateOnline {
-		return pair.dialer.Dial(ConnConfig{
-			Address:  server.Address,
-			Database: server.Database,
-		})
+		return pair.dialer.Dial(server)
 	}
 
 	server = pair.sndServers[serverIndex]
-	return pair.dialer.Dial(ConnConfig{
-		Address:  server.Address,
-		Database: server.Database,
-	})
+	return pair.dialer.Dial(server)
 }
 
 // SetPrimaryStorageConfig allows you to overwrite the currently used primary storage config
@@ -511,6 +493,21 @@ func (pair *ClusterPair) serverIsOnline(index int64) bool {
 	return server.State == config.StorageServerStateOnline
 }
 
+// NopCluster is a Cluster which can be used for
+// scenarios where you want to specify a StorageCluster,
+// which only ever returns NoServersAvailable error.
+type NopCluster struct{}
+
+// Do implements StorageCluster.Do
+func (cluster NopCluster) Do(action StorageAction) (reply interface{}, err error) {
+	return nil, ErrNoServersAvailable
+}
+
+// DoFor implements StorageCluster.DoFor
+func (cluster NopCluster) DoFor(objectIndex int64, action StorageAction) (reply interface{}, err error) {
+	return nil, ErrNoServersAvailable
+}
+
 // ComputeServerIndex computes a server index for a given objectIndex,
 // using a shared static algorithm with the serverCount as input and
 // a given predicate to define if a computed index is fine.
@@ -565,6 +562,9 @@ var (
 )
 
 var (
+	// ErrServerUnavailable is returned in case
+	// a given server is unavailable (e.g. offline).
+	ErrServerUnavailable = errors.New("server is unavailable")
 	// ErrNoServersAvailable is returned in case
 	// no servers are available for usage.
 	ErrNoServersAvailable = errors.New("no servers available")

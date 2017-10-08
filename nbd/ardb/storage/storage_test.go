@@ -10,7 +10,6 @@ import (
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/stretchr/testify/assert"
-	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/redisstub"
 )
@@ -346,10 +345,6 @@ func testBlockStorageDeadlock(t *testing.T, blockSize, blockCount int64, storage
 	wg.Wait()
 }
 
-func TestBockStorageConfig(t *testing.T) {
-	// todo
-}
-
 func TestPipelineErrors(t *testing.T) {
 	assert := assert.New(t)
 
@@ -462,10 +457,9 @@ func testStorageGetOp(key string, expected interface{}) storageOp {
 
 func TestStorageOpPipeline(t *testing.T) {
 	memRedis := redisstub.NewMemoryRedis()
-	go memRedis.Listen()
 	defer memRedis.Close()
-
-	cfg := config.StorageServerConfig{Address: memRedis.Address()}
+	clusterConfig := memRedis.StorageClusterConfig()
+	cfg := clusterConfig.Servers[0]
 
 	var pipeline storageOpPipeline
 

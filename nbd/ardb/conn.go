@@ -6,13 +6,15 @@ import (
 	"time"
 
 	"github.com/garyburd/redigo/redis"
+	"github.com/lunny/log"
+	"github.com/zero-os/0-Disk/config"
 )
 
 // StandardConnectionDialer defines a non-pooled standard connection dialer.
 type StandardConnectionDialer struct{}
 
 // Dial implements ConnetionDialer.Dial
-func (scd StandardConnectionDialer) Dial(cfg ConnConfig) (Conn, error) {
+func (scd StandardConnectionDialer) Dial(cfg config.StorageServerConfig) (Conn, error) {
 	return Dial(cfg)
 }
 
@@ -25,7 +27,7 @@ func NewPool(dial DialFunc) *Pool {
 	}
 
 	return &Pool{
-		pools:    make(map[ConnConfig]*redis.Pool),
+		pools:    make(map[config.StorageServerConfig]*redis.Pool),
 		dialFunc: dial,
 	}
 }
@@ -33,18 +35,22 @@ func NewPool(dial DialFunc) *Pool {
 // Pool maintains a collection of pools (one pool per config).
 type Pool struct {
 	mux      sync.RWMutex //protects following
-	pools    map[ConnConfig]*redis.Pool
+	pools    map[config.StorageServerConfig]*redis.Pool
 	dialFunc DialFunc
 }
 
 // Dial implements ConnectionDialer.Dial
-func (p *Pool) Dial(cfg ConnConfig) (Conn, error) {
+func (p *Pool) Dial(cfg config.StorageServerConfig) (Conn, error) {
+	if cfg.State != config.StorageServerStateOnline {
+		return nil, ErrServerUnavailable
+	}
+
 	conn := p.getConnectionSpecificPool(cfg).Get()
 	return conn, conn.Err()
 }
 
 // GetConnectionSpecificPool gets a redis.Pool for a specific config.
-func (p *Pool) getConnectionSpecificPool(cfg ConnConfig) *redis.Pool {
+func (p *Pool) getConnectionSpecificPool(cfg config.StorageServerConfig) *redis.Pool {
 	p.mux.RLock()
 	pool, ok := p.pools[cfg]
 	p.mux.RUnlock()
@@ -84,33 +90,50 @@ func (p *Pool) Close() {
 type ConnectionDialer interface {
 	// Dial an ARDB connection.
 	// The callee must close the returned connection.
-	Dial(cfg ConnConfig) (Conn, error)
+	Dial(cfg config.StorageServerConfig) (Conn, error)
 }
 
 // Dial a standard (TCP) connection using a given ARDB server config.
-func Dial(cfg ConnConfig) (Conn, error) {
+func Dial(cfg config.StorageServerConfig) (Conn, error) {
+	if cfg.State != config.StorageServerStateOnline {
+		return nil, ErrServerUnavailable
+	}
 	return redis.Dial("tcp", cfg.Address, redis.DialDatabase(cfg.Database))
+}
+
+// DialAll dials standard (TCP) connections for the given ARDB server configs.
+func DialAll(cfgs ...config.StorageServerConfig) (conns []Conn, err error) {
+	if len(cfgs) == 0 {
+		return nil, ErrInvalidInput
+	}
+
+	var conn Conn
+	for _, cfg := range cfgs {
+		// dial a single connection
+		conn, err = Dial(cfg)
+		if err != nil {
+			// connecton failed, close all open connections and return it all
+			var closeErr error
+			for _, conn = range conns {
+				closeErr = conn.Close()
+				if closeErr != nil {
+					log.Errorf("couldn't close open connection: %v", err)
+				}
+			}
+
+			return
+		}
+
+		// connection established, add it to the list of open connections
+		conns = append(conns, conn)
+	}
+
+	return
 }
 
 // DialFunc represents any kind of function,
 // used to dial an ARDB connection.
-type DialFunc func(cfg ConnConfig) (Conn, error)
-
-// ConnConfig is the config that is used to dial a connection.
-type ConnConfig struct {
-	Address  string
-	Database int
-}
-
-// Validate the given Connection Config,
-// returning an error when no config is given,
-// or in case an invalid one is given.
-func (cfg ConnConfig) Validate() error {
-	if cfg.Address == "" {
-		return errAddressNotGiven
-	}
-	return nil
-}
+type DialFunc func(cfg config.StorageServerConfig) (Conn, error)
 
 // Conn represents a connection to an ARDB server.
 type Conn interface {
