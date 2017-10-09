@@ -77,6 +77,24 @@ func (cluster *Cluster) connection() (Conn, error) {
 	return nil, ErrNoServersAvailable
 }
 
+// Config returns the config of the first available server.
+func (cluster *Cluster) Config() (*ServerInfo, error) {
+	cluster.mux.RLock()
+	defer cluster.mux.RUnlock()
+
+	for index, server := range cluster.servers {
+		if server.State == config.StorageServerStateOnline {
+			return &ServerInfo{
+				Config:  server,
+				Index:   int64(index),
+				Primary: true,
+			}, nil
+		}
+	}
+
+	return nil, ErrNoServersAvailable
+}
+
 // DoFor implements StorageCluster.DoFor
 func (cluster *Cluster) DoFor(objectIndex int64, action StorageAction) (interface{}, error) {
 	conn, err := cluster.connectionFor(objectIndex)
@@ -102,6 +120,33 @@ func (cluster *Cluster) connectionFor(objectIndex int64) (Conn, error) {
 
 	server := cluster.servers[serverIndex]
 	return cluster.dialer.Dial(server)
+}
+
+// ConfigFor returns the config of the server which maps to the given objectIndex.
+func (cluster *Cluster) ConfigFor(objectIndex int64) (*ServerInfo, error) {
+	cluster.mux.RLock()
+	defer cluster.mux.RUnlock()
+
+	if cluster.serverCount == 0 {
+		return nil, ErrNoServersAvailable
+	}
+
+	serverIndex, err := ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverIsOnline)
+	if err != nil {
+		return nil, err
+	}
+
+	server := cluster.servers[serverIndex]
+	return &ServerInfo{
+		Config:  server,
+		Index:   serverIndex,
+		Primary: true,
+	}, nil
+}
+
+// Dial a connection using the cluster's dialer.
+func (cluster *Cluster) Dial(cfg config.StorageServerConfig) (Conn, error) {
+	return cluster.dialer.Dial(cfg)
 }
 
 // SetStorageconfig allows you to overwrite the currently used storage config
@@ -514,6 +559,15 @@ func (cluster NopCluster) Do(action StorageAction) (reply interface{}, err error
 // DoFor implements StorageCluster.DoFor
 func (cluster NopCluster) DoFor(objectIndex int64, action StorageAction) (reply interface{}, err error) {
 	return nil, ErrNoServersAvailable
+}
+
+// ServerInfo can be retrieved from both Cluster and ClusterPair,
+// for a given object index.
+type ServerInfo struct {
+	Config config.StorageServerConfig
+
+	Index   int64
+	Primary bool
 }
 
 // ComputeServerIndex computes a server index for a given objectIndex,
