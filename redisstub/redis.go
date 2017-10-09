@@ -82,8 +82,8 @@ func (mr *MemoryRedis) address() string {
 
 // StorageClusterConfig returns a new StorageClusterConfig,
 // usable to connect to this in-memory redis-compatible ledisdb.
-func (mr *MemoryRedis) StorageClusterConfig() *config.StorageClusterConfig {
-	return &config.StorageClusterConfig{
+func (mr *MemoryRedis) StorageClusterConfig() config.StorageClusterConfig {
+	return config.StorageClusterConfig{
 		Servers: []config.StorageServerConfig{
 			config.StorageServerConfig{Address: mr.address()},
 		},
@@ -117,12 +117,11 @@ type MemoryRedisSlice struct {
 
 // StorageClusterConfig returns a new StorageClusterConfig,
 // usable to connect to this slice of in-memory redis-compatible ledisdb.
-func (mrs *MemoryRedisSlice) StorageClusterConfig() *config.StorageClusterConfig {
+func (mrs *MemoryRedisSlice) StorageClusterConfig() config.StorageClusterConfig {
+	var cfg config.StorageClusterConfig
 	if mrs == nil || mrs.slice == nil {
-		return nil
+		return cfg
 	}
-
-	cfg := new(config.StorageClusterConfig)
 
 	for _, server := range mrs.slice {
 		cfg.Servers = append(cfg.Servers,

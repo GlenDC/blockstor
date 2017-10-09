@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/redisstub"
@@ -310,7 +309,7 @@ func TestNonDedupedStorageTemplateServerDown(t *testing.T) {
 	}
 
 	// now mark template invalid, and that should make it return an expected error instead
-	clusterA.SetServerState(0, config.StorageServerStateOffline)
+	storageB.(*nonDedupedStorage).templateCluster = ardb.NopCluster{}
 	content, err = storageB.GetBlock(someIndexPlusOne)
 	if len(content) != 0 {
 		t.Fatalf("content should be empty but was was: %v",
@@ -419,7 +418,7 @@ func TestListNonDedupedBlockIndices(t *testing.T) {
 		t.Fatalf("storage could not be created: %v", err)
 	}
 
-	indices, err := ListNonDedupedBlockIndices(vdiskID, clusterConfig)
+	indices, err := ListNonDedupedBlockIndices(vdiskID, &clusterConfig)
 	if err == nil {
 		t.Fatalf("expected an error, as no indices exist yet: %v", indices)
 	}
@@ -455,7 +454,7 @@ func TestListNonDedupedBlockIndices(t *testing.T) {
 		}
 
 		// now test if listing the indices is correct
-		indices, err := ListNonDedupedBlockIndices(vdiskID, clusterConfig)
+		indices, err := ListNonDedupedBlockIndices(vdiskID, &clusterConfig)
 		if err != nil {
 			t.Fatalf("couldn't list deduped block indices (step %d): %v", i, err)
 		}
@@ -492,7 +491,7 @@ func TestListNonDedupedBlockIndices(t *testing.T) {
 		expectedIndices = append(expectedIndices[:ci], expectedIndices[ci+1:]...)
 
 		// now test if listing the indices is still correct
-		indices, err := ListNonDedupedBlockIndices(vdiskID, clusterConfig)
+		indices, err := ListNonDedupedBlockIndices(vdiskID, &clusterConfig)
 		if err != nil {
 			t.Fatalf("couldn't list deduped block indices (step %d): %v", i, err)
 		}
