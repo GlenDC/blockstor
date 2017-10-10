@@ -108,8 +108,20 @@ func (ss *nonDedupedStorage) getPrimaryOrTemplateContent(blockIndex int64) (cont
 
 	cmd := ardb.Command("HGET", ss.storageKey, blockIndex)
 	content, err = ardb.OptBytes(ss.templateCluster.DoFor(blockIndex, cmd))
-	if err != nil || content == nil {
-		return
+	if err != nil {
+		// this error is returned, in case the cluster is simply not defined,
+		// which is an error we'll ignore, as it means we cannot use the template cluster,
+		// and thus no content is returned, and neither an error.
+		if err == ErrClusterNotDefined {
+			return nil, nil
+		}
+		// no content to return,
+		// exit with an error
+		return nil, err
+	}
+	if content == nil {
+		// no content or error to return
+		return nil, nil
 	}
 
 	// check if we found the content in the template server
