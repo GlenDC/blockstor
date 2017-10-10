@@ -968,21 +968,18 @@ func loadOrNewTlogMetadata(vdiskID string, cluster ardb.StorageCluster) (*tlogMe
 	}
 
 	key := MetadataKey(vdiskID)
-	lastFlushedSequence, err := redis.Uint64(cluster.Do(
-		ardb.Command("HGET", key, tlogMetadataLastFlushedSequenceField)))
-	if err != nil && err != redis.ErrNil {
+	md, err := deserializeTlogMetadata(key, vdiskID, cluster)
+	if err != nil {
 		return nil, err
 	}
-
-	md := newTlogMetadata(lastFlushedSequence, vdiskID, key)
 	md.cluster = cluster
 	return md, nil
 }
 
-func deserializeTlogMetadata(key, vdiskID string, metaConn redis.Conn) (*tlogMetadata, error) {
-	lastFlushedSequence, err := redis.Uint64(
-		metaConn.Do("HGET", key, tlogMetadataLastFlushedSequenceField))
-	if err != nil && err != redis.ErrNil {
+func deserializeTlogMetadata(key, vdiskID string, cluster ardb.StorageCluster) (*tlogMetadata, error) {
+	lastFlushedSequence, err := ardb.OptUint64(cluster.Do(
+		ardb.Command("HGET", key, tlogMetadataLastFlushedSequenceField)))
+	if err != nil {
 		return nil, err
 	}
 
@@ -1027,14 +1024,14 @@ func (md *tlogMetadata) Flush() error {
 
 	md.mux.Lock()
 	defer md.mux.Unlock()
-
-	_, err := md.cluster.Do(
-		ardb.Command("HSET", md.key, tlogMetadataLastFlushedSequenceField, md.lastFlushedSequence))
-	return err
+	return md.serialize(md.cluster)
 }
 
-func (md *tlogMetadata) serialize(conn redis.Conn) error {
-	_, err := conn.Do("HSET", md.key, tlogMetadataLastFlushedSequenceField, md.lastFlushedSequence)
+func (md *tlogMetadata) serialize(cluster ardb.StorageCluster) error {
+	_, err := cluster.Do(
+		ardb.Command("HSET",
+			md.key, tlogMetadataLastFlushedSequenceField,
+			md.lastFlushedSequence))
 	return err
 }
 
@@ -1045,23 +1042,14 @@ func MetadataKey(vdiskID string) string {
 }
 
 // CreateMetadata creates all metadata of a tlog-enabled storage.
-func CreateMetadata(vdiskID string, lastFlushedSequence uint64, cluster *config.StorageClusterConfig) error {
-	meteServerIndex, err := ardb.FindFirstServerIndex(
-		int64(len(cluster.Servers)), func(serverIndex int64) bool {
-			return cluster.Servers[serverIndex].State == config.StorageServerStateOnline
-		})
+func CreateMetadata(vdiskID string, lastFlushedSequence uint64, clusterCfg *config.StorageClusterConfig) error {
+	cluster, err := ardb.NewCluster(*clusterCfg, nil)
 	if err != nil {
 		return err
 	}
-	conn, err := ardb.Dial(cluster.Servers[meteServerIndex])
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 
 	metadata := newTlogMetadata(lastFlushedSequence, vdiskID, MetadataKey(vdiskID))
-
-	return metadata.serialize(conn)
+	return metadata.serialize(cluster)
 }
 
 // DeleteMetadata deletes all metadata of a tlog-enabled storage,
@@ -1108,35 +1096,41 @@ func DeleteMetadata(serverCfg config.StorageServerConfig, vdiskIDs ...string) er
 
 // CopyMetadata copies all metadata of a tlog-enabled storage
 // from a sourceID to a targetID, within the same cluster or between different clusters.
-func CopyMetadata(sourceID, targetID string, sourceCluster, targetCluster *config.StorageClusterConfig) error {
+func CopyMetadata(sourceID, targetID string, sourceClusterCfg, targetClusterCfg *config.StorageClusterConfig) error {
 	// validate source cluster
-	if sourceCluster == nil {
+	if sourceClusterCfg == nil {
 		return errors.New("no source cluster given")
 	}
 
 	// define whether or not we're copying between different servers.
-	if targetCluster == nil {
-		targetCluster = sourceCluster
+	if targetClusterCfg == nil {
+		targetClusterCfg = sourceClusterCfg
 	}
 
 	// get first available storage server
 
 	sourceServerIndex, err := ardb.FindFirstServerIndex(
-		int64(len(sourceCluster.Servers)), func(serverIndex int64) bool {
-			return sourceCluster.Servers[serverIndex].State == config.StorageServerStateOnline
+		int64(len(sourceClusterCfg.Servers)), func(serverIndex int64) bool {
+			return sourceClusterCfg.Servers[serverIndex].State == config.StorageServerStateOnline
 		})
 	if err != nil {
 		return err
 	}
-	metaSourceCfg := sourceCluster.Servers[sourceServerIndex]
+	metaSourceCfg := sourceClusterCfg.Servers[sourceServerIndex]
+
+	sourceCluster, err := ardb.NewUniCluster(metaSourceCfg, nil)
+	if err != nil {
+		return err
+	}
+
 	targetServerIndex, err := ardb.FindFirstServerIndex(
-		int64(len(targetCluster.Servers)), func(serverIndex int64) bool {
-			return targetCluster.Servers[serverIndex].State == config.StorageServerStateOnline
+		int64(len(targetClusterCfg.Servers)), func(serverIndex int64) bool {
+			return targetClusterCfg.Servers[serverIndex].State == config.StorageServerStateOnline
 		})
 	if err != nil {
 		return err
 	}
-	metaTargetCfg := targetCluster.Servers[targetServerIndex]
+	metaTargetCfg := targetClusterCfg.Servers[targetServerIndex]
 
 	if metaSourceCfg.Equal(&metaTargetCfg) {
 		conn, err := ardb.Dial(metaSourceCfg)
@@ -1145,30 +1139,27 @@ func CopyMetadata(sourceID, targetID string, sourceCluster, targetCluster *confi
 		}
 		defer conn.Close()
 
-		return copyMetadataSameConnection(sourceID, targetID, conn)
+		return copyMetadataSameConnection(sourceID, targetID, sourceCluster)
 	}
 
-	conns, err := ardb.DialAll(metaSourceCfg, metaTargetCfg)
+	targetCluster, err := ardb.NewUniCluster(metaTargetCfg, nil)
 	if err != nil {
-		return fmt.Errorf("couldn't connect to ardb: %s", err.Error())
+		return err
 	}
-	defer func() {
-		conns[0].Close()
-		conns[1].Close()
-	}()
-	return copyMetadataDifferentConnections(sourceID, targetID, conns[0], conns[1])
+
+	return copyMetadataDifferentConnections(sourceID, targetID, sourceCluster, targetCluster)
 }
 
-func copyMetadataDifferentConnections(sourceID, targetID string, connA, connB redis.Conn) error {
+func copyMetadataDifferentConnections(sourceID, targetID string, sourceCluster, targetCluster ardb.StorageCluster) error {
 	sourceKey := MetadataKey(sourceID)
-	metadata, err := deserializeTlogMetadata(sourceKey, sourceID, connA)
+	metadata, err := deserializeTlogMetadata(sourceKey, sourceID, sourceCluster)
 	if err != nil {
 		return fmt.Errorf(
 			"couldn't deserialize source tlog metadata for %s: %v", sourceID, err)
 	}
 
 	metadata.key = MetadataKey(targetID)
-	err = metadata.serialize(connB)
+	err = metadata.serialize(targetCluster)
 	if err != nil {
 		return fmt.Errorf(
 			"couldn't serialize destination tlog metadata for %s: %v", targetID, err)
@@ -1177,16 +1168,16 @@ func copyMetadataDifferentConnections(sourceID, targetID string, connA, connB re
 	return nil
 }
 
-func copyMetadataSameConnection(sourceID, targetID string, conn redis.Conn) error {
+func copyMetadataSameConnection(sourceID, targetID string, cluster ardb.StorageCluster) error {
 	log.Infof("dumping tlog metadata of vdisk %q and restoring it as tlog metadata of vdisk %q",
 		sourceID, targetID)
 
 	sourceKey, targetKey := MetadataKey(sourceID), MetadataKey(targetID)
-	_, err := copyMetadataSameConnScript.Do(conn, sourceKey, targetKey)
+	_, err := cluster.Do(ardb.Script(0, copyMetadataSameConnScript, sourceKey, targetKey))
 	return err
 }
 
-var copyMetadataSameConnScript = redis.NewScript(0, `
+var copyMetadataSameConnScript = `
 	local source = ARGV[1]
 	local dest = ARGV[2]
 	
@@ -1199,7 +1190,7 @@ var copyMetadataSameConnScript = redis.NewScript(0, `
 	end
 	
 	redis.call("RESTORE", dest, 0, redis.call("DUMP", source))
-`)
+`
 
 const (
 	tlogMetadataKeyPrefix                = "tlog:"

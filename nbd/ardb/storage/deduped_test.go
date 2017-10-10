@@ -5,11 +5,9 @@ import (
 	crand "crypto/rand"
 	mrand "math/rand"
 	"runtime/debug"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/garyburd/redigo/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/zero-os/0-Disk"
 	"github.com/zero-os/0-Disk/config"
@@ -21,23 +19,17 @@ import (
 
 // simplified algorithm based on `cmd/copyvdisk/copy_different.go`
 func copyTestMetaData(t *testing.T, vdiskIDA, vdiskIDB string, clusterA, clusterB ardb.StorageCluster) {
-	data, err := redis.StringMap(
+	data, err := ardb.Int64ToBytesMapping(
 		clusterA.Do(ardb.Command("HGETALL", lba.StorageKey(vdiskIDA))))
 	if err != nil {
 		debug.PrintStack()
 		t.Fatal(err)
 	}
 
-	cmds := []*ardb.StorageCommand{ardb.Command("DEL", lba.StorageKey(vdiskIDB))}
-	var index int64
-	for rawIndex, hash := range data {
-		index, err = strconv.ParseInt(rawIndex, 10, 64)
-		if err != nil {
-			debug.PrintStack()
-			t.Fatal(err)
-		}
-
-		cmds = append(cmds, ardb.Command("HSET", lba.StorageKey(vdiskIDB), index, []byte(hash)))
+	cmds := []ardb.StorageBufferAction{ardb.Command("DEL", lba.StorageKey(vdiskIDB))}
+	for index, hash := range data {
+		cmds = append(cmds,
+			ardb.Command("HSET", lba.StorageKey(vdiskIDB), index, hash))
 	}
 
 	_, err = clusterB.Do(ardb.Commands(cmds...))
@@ -69,7 +61,7 @@ func testDedupContentExists(t *testing.T, cluster ardb.StorageCluster, content [
 // the given content does not exist in the database
 func testDedupContentDoesNotExist(t *testing.T, cluster ardb.StorageCluster, content []byte) {
 	hash := zerodisk.HashBytes(content).Bytes()
-	exists, err := redis.Bool(
+	exists, err := ardb.Bool(
 		cluster.DoFor(int64(hash[0]), ardb.Command("EXISTS", hash)))
 	if err != nil {
 		debug.PrintStack()

@@ -21,11 +21,90 @@ func Bytes(reply interface{}, err error) ([]byte, error) {
 // however if no reply is returned, this function will return a nil slice,
 // rather than an error.
 func OptBytes(reply interface{}, err error) ([]byte, error) {
-	content, err := redis.Bytes(reply, err)
-	if err == redis.ErrNil {
-		err = nil
+	if reply == nil {
+		return nil, err
 	}
-	return content, err
+	return redis.Bytes(reply, err)
+}
+
+// Bool is a helper that converts a command reply to a boolean. If err is not
+// equal to nil, then Bool returns false, err.
+func Bool(reply interface{}, err error) (bool, error) {
+	return redis.Bool(reply, err)
+}
+
+// OptBool is a helper that converts a command reply to a boolean. If err is not
+// equal to nil, then Bool returns false, err.
+// If reply is `nil`, than it returns false, err as well.
+func OptBool(reply interface{}, err error) (bool, error) {
+	if reply == nil {
+		return false, err
+	}
+	return redis.Bool(reply, err)
+}
+
+// Int is a helper that converts a command reply to signed 32/64 bit integer. If err is
+// not equal to nil, then it returns 0, err.
+func Int(reply interface{}, err error) (int, error) {
+	return redis.Int(reply, err)
+}
+
+// OptInt is a helper that converts a command reply to signed 32/64 bit integer. If err is
+// not equal to nil, then it returns 0, err.
+// If reply is `nil`, than it returns 0, err as well.
+func OptInt(reply interface{}, err error) (int, error) {
+	if reply == nil {
+		return 0, err
+	}
+	return redis.Int(reply, err)
+}
+
+// Int64 is a helper that converts a command reply to signed 64 bit integer. If err is
+// not equal to nil, then it returns 0, err.
+func Int64(reply interface{}, err error) (int64, error) {
+	return redis.Int64(reply, err)
+}
+
+// OptInt64 is a helper that converts a command reply to signed 64 bit integer. If err is
+// not equal to nil, then it returns 0, err.
+// If reply is `nil`, than it returns 0, err as well.
+func OptInt64(reply interface{}, err error) (int64, error) {
+	if reply == nil {
+		return 0, err
+	}
+	return redis.Int64(reply, err)
+}
+
+// Uint64 is a helper that converts a command reply to 64 bit integer. If err is
+// not equal to nil, then it returns 0, err.
+func Uint64(reply interface{}, err error) (uint64, error) {
+	return redis.Uint64(reply, err)
+}
+
+// OptUint64 is a helper that converts a command reply to 64 bit integer. If err is
+// not equal to nil, then it returns 0, err.
+// If reply is `nil`, than it returns 0, err as well.
+func OptUint64(reply interface{}, err error) (uint64, error) {
+	if reply == nil {
+		return 0, err
+	}
+	return redis.Uint64(reply, err)
+}
+
+// String is a helper that converts a command reply to a string. If err is
+// not equal to nil, then it returns "", err.
+func String(reply interface{}, err error) (string, error) {
+	return redis.String(reply, err)
+}
+
+// OptString is a helper that converts a command reply to a string. If err is
+// not equal to nil, then it returns "", err.
+// If reply is `nil`, than it returns "", err as well.
+func OptString(reply interface{}, err error) (string, error) {
+	if reply == nil {
+		return "", err
+	}
+	return redis.String(reply, err)
 }
 
 // Int64s is a helper that converts an array command reply to a []int64.
@@ -42,7 +121,7 @@ func Int64s(reply interface{}, err error) ([]int64, error) {
 		return nil, err
 	}
 	if len(ints) == 0 {
-		return nil, redis.ErrNil
+		return nil, ErrNil
 	}
 
 	return ints, nil
@@ -73,3 +152,8 @@ func Int64ToBytesMapping(reply interface{}, err error) (map[int64][]byte, error)
 	}
 	return m, nil
 }
+
+var (
+	// ErrNil indicates that a reply value is nil.
+	ErrNil = redis.ErrNil
+)
