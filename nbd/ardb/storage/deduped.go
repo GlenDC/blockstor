@@ -3,7 +3,6 @@ package storage
 import (
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/garyburd/redigo/redis"
 
@@ -226,7 +225,7 @@ func dedupedVdiskExistsOnServer(key string, server config.StorageServerConfig) (
 		return false, fmt.Errorf("couldn't connect to data ardb: %s", err.Error())
 	}
 	defer conn.Close()
-	return redis.Bool(conn.Do("EXISTS", key))
+	return ardb.Bool(conn.Do("EXISTS", key))
 }
 
 // ListDedupedBlockIndices returns all indices stored for the given deduped storage.
@@ -247,7 +246,7 @@ func ListDedupedBlockIndices(vdiskID string, cluster *config.StorageClusterConfi
 	for _, server := range cluster.Servers {
 		serverIndices, err = listDedupedBlockIndices(key, server)
 		if err != nil {
-			if err == redis.ErrNil {
+			if err == ardb.ErrNil {
 				continue
 			}
 			return nil, err
@@ -260,7 +259,7 @@ func ListDedupedBlockIndices(vdiskID string, cluster *config.StorageClusterConfi
 	// we'll return a redis nil-error, such that the user can decide
 	// if they want to threat it as an error or not
 	if len(vdiskIndices) == 0 {
-		return nil, redis.ErrNil
+		return nil, ardb.ErrNil
 	}
 
 	// at least one index is found,
@@ -384,7 +383,7 @@ func copyDedupedDifferentConnections(sourceID, targetID string, connA, connB red
 
 	// get data from source connection
 	log.Infof("collecting all metadata from source vdisk %q...", sourceID)
-	data, err := redis.StringMap(connA.Do("HGETALL", sourceKey))
+	data, err := ardb.Int64ToBytesMapping(connA.Do("HGETALL", sourceKey))
 	if err != nil {
 		return
 	}
@@ -409,14 +408,8 @@ func copyDedupedDifferentConnections(sourceID, targetID string, connA, connB red
 	// buffer all data on target connection
 	log.Infof("buffering %d meta indices for target vdisk %q...",
 		len(data), targetID)
-	var index int64
-	for rawIndex, hash := range data {
-		index, err = strconv.ParseInt(rawIndex, 10, 64)
-		if err != nil {
-			return
-		}
-
-		connB.Send("HSET", targetKey, index, []byte(hash))
+	for index, hash := range data {
+		connB.Send("HSET", targetKey, index, hash)
 	}
 
 	// send all data to target connection (execute the transaction)

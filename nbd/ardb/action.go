@@ -1,12 +1,24 @@
 package ardb
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/garyburd/redigo/redis"
+)
 
 // StorageAction defines the interface of an
 // action which can be aplied to an ARDB connection.
 type StorageAction interface {
 	// Do applies this StorageAction to a given ARDB connection.
 	Do(conn Conn) (reply interface{}, err error)
+}
+
+// StorageBufferAction defines the interface of an
+// action which can be buffered together with other commands,
+// such that they can all be applied together to a given ARDB connection.
+type StorageBufferAction interface {
+	// Send buffers the StorageAction to be aplied to a given ARDB connection.
+	Send(conn Conn) (err error)
 }
 
 // Command creates a single command on the fly,
@@ -35,21 +47,51 @@ func (cmd *StorageCommand) Do(conn Conn) (reply interface{}, err error) {
 	return conn.Do(cmd.Name, cmd.Arguments...)
 }
 
-// send is a private function which allows you to send
-// the command to a connection,
-// such that even an undefined StorageCommand
-// does not result in a panic.
-// See `(*StorageCommands).Do` to see it in action.
-func (cmd *StorageCommand) send(conn Conn) error {
+// Send implements StorageBufferAction.Send
+func (cmd *StorageCommand) Send(conn Conn) error {
 	if cmd == nil {
 		return errNoCommandDefined
 	}
 	return conn.Send(cmd.Name, cmd.Arguments...)
 }
 
+// Script creates a single script on the fly,
+// ready to be used as a(n) (ARDB) StorageAction.
+func Script(keyCount int, src string, keysAndArgs ...interface{}) *StorageScript {
+	return &StorageScript{
+		Script:           redis.NewScript(keyCount, src),
+		KeysAndArguments: keysAndArgs,
+	}
+}
+
+// StorageScript defines a structure which allows you
+// to encapsulate a lua script and arguments,
+// such that it can be (re)used as a StorageAction.
+type StorageScript struct {
+	Script           *redis.Script
+	KeysAndArguments []interface{}
+}
+
+// Do implements StorageAction.Do
+func (cmd *StorageScript) Do(conn Conn) (reply interface{}, err error) {
+	if cmd == nil || cmd.Script == nil {
+		return nil, errNoCommandDefined
+	}
+
+	return cmd.Script.Do(conn, cmd.KeysAndArguments...)
+}
+
+// Send implements StorageBufferAction.Send
+func (cmd *StorageScript) Send(conn Conn) error {
+	if cmd == nil || cmd.Script == nil {
+		return errNoCommandDefined
+	}
+	return cmd.Script.Send(conn, cmd.KeysAndArguments...)
+}
+
 // Commands creates a slice of commands on the fly,
 // ready to be used as a(n) (ARDB) StorageAction.
-func Commands(cmds ...*StorageCommand) *StorageCommands {
+func Commands(cmds ...StorageBufferAction) *StorageCommands {
 	return &StorageCommands{commands: cmds}
 }
 
@@ -57,7 +99,7 @@ func Commands(cmds ...*StorageCommand) *StorageCommands {
 // to encapsulate a slice of commands (see: StorageCommand),
 // such that it can be (re)used as a StorageAction.
 type StorageCommands struct {
-	commands []*StorageCommand
+	commands []StorageBufferAction
 }
 
 // Do implements StorageAction.Do
@@ -68,7 +110,7 @@ func (cmds *StorageCommands) Do(conn Conn) (replies interface{}, err error) {
 
 	// 1. send all commands
 	for _, cmd := range cmds.commands {
-		err = cmd.send(conn)
+		err = cmd.Send(conn)
 		if err != nil {
 			return nil, err
 		}

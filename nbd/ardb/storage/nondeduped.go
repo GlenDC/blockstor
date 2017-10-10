@@ -187,7 +187,7 @@ func nonDedupedVdiskExistsOnServer(key string, server config.StorageServerConfig
 			server.Address, server.Database, err.Error())
 	}
 	defer conn.Close()
-	return redis.Bool(conn.Do("EXISTS", key))
+	return ardb.Bool(conn.Do("EXISTS", key))
 }
 
 // ListNonDedupedBlockIndices returns all indices stored for the given nondeduped storage.
@@ -204,7 +204,7 @@ func ListNonDedupedBlockIndices(vdiskID string, cluster *config.StorageClusterCo
 	// collect the indices found on each data server
 	for _, serverConfig := range cluster.Servers {
 		serverIndices, err := listNonDedupedBlockIndicesOnDataServer(key, serverConfig)
-		if err == redis.ErrNil {
+		if err == ardb.ErrNil {
 			log.Infof(
 				"ardb server %s@%d doesn't contain any data for nondeduped vdisk %s",
 				serverConfig.Address, serverConfig.Database, vdiskID)
@@ -221,7 +221,7 @@ func ListNonDedupedBlockIndices(vdiskID string, cluster *config.StorageClusterCo
 
 	// if no indices could be found, we concider that as an error
 	if len(indices) == 0 {
-		return nil, redis.ErrNil
+		return nil, ardb.ErrNil
 	}
 
 	sortInt64s(indices)
@@ -315,7 +315,7 @@ func copyNonDedupedSameConnection(sourceID, targetID string, conn redis.Conn) (e
 	sourceKey := nonDedupedStorageKey(sourceID)
 	targetKey := nonDedupedStorageKey(targetID)
 
-	indexCount, err := redis.Int64(copyNonDedupedSameConnScript.Do(conn, sourceKey, targetKey))
+	indexCount, err := ardb.Int64(copyNonDedupedSameConnScript.Do(conn, sourceKey, targetKey))
 	if err == nil {
 		log.Infof("copied %d block indices to vdisk %q",
 			indexCount, targetID)

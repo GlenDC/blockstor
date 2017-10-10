@@ -17,6 +17,58 @@ type StorageCluster interface {
 	DoFor(objectIndex int64, action StorageAction) (reply interface{}, err error)
 }
 
+// NewUniCluster creates a new (ARDB) uni-cluster.
+// See `UniCluster` for more information.
+func NewUniCluster(cfg config.StorageServerConfig, dialer ConnectionDialer) (*UniCluster, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	if dialer == nil {
+		dialer = stdConnDialer
+	}
+
+	return &UniCluster{
+		server: cfg,
+		dialer: dialer,
+	}, nil
+}
+
+// UniCluster defines an in memory cluster model for a uni-cluster.
+// Meaning it is a cluster with just /one/ ARDB server configured.
+// As a consequence all methods will dial connections to this one server.
+// This cluster type should only very be used for very specialized purposes.
+type UniCluster struct {
+	server config.StorageServerConfig
+	dialer ConnectionDialer
+}
+
+// Do implements StorageCluster.Do
+func (cluster *UniCluster) Do(action StorageAction) (interface{}, error) {
+	// establish a connection for that serverIndex
+	conn, err := cluster.dialer.Dial(cluster.server)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	// apply the given action to the established connection
+	return action.Do(conn)
+}
+
+// DoFor implements StorageCluster.DoFor
+func (cluster *UniCluster) DoFor(_ int64, action StorageAction) (interface{}, error) {
+	// establish a connection for that serverIndex
+	conn, err := cluster.dialer.Dial(cluster.server)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	// apply the given action to the established connection
+	return action.Do(conn)
+}
+
 // NewCluster creates a new (ARDB) cluster.
 func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Cluster, error) {
 	if err := cfg.Validate(); err != nil {
@@ -24,7 +76,7 @@ func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Clus
 	}
 
 	if dialer == nil {
-		dialer = new(StandardConnectionDialer)
+		dialer = stdConnDialer
 	}
 
 	return &Cluster{
@@ -35,7 +87,6 @@ func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Clus
 }
 
 // Cluster defines the in memory cluster model for a single cluster.
-// It can (and probably should) be used as a StorageCluster.
 type Cluster struct {
 	servers     []config.StorageServerConfig
 	serverCount int64
@@ -108,7 +159,7 @@ func NewClusterPair(first, second config.StorageClusterConfig, dialer Connection
 
 	// default the dialer to a non-pooled redigo dialer
 	if dialer == nil {
-		dialer = new(StandardConnectionDialer)
+		dialer = stdConnDialer
 	}
 
 	// all fine, return the cluster pair,
@@ -124,7 +175,6 @@ func NewClusterPair(first, second config.StorageClusterConfig, dialer Connection
 
 // ClusterPair defines a pair of clusters,
 // where the secondary cluster is used as a backup for the first cluster.
-// It can (and probably should) be used as a StorageCluster.
 type ClusterPair struct {
 	fstServers     []config.StorageServerConfig
 	fstServerCount int64
@@ -281,9 +331,14 @@ func ComputeServerIndex(serverCount, objectIndex int64, predicate ServerIndexPre
 	}
 }
 
+var (
+	stdConnDialer = new(StandardConnectionDialer)
+)
+
 // enforces that our std StorageClusters
 // are actually StorageClusters
 var (
+	_ StorageCluster = (*UniCluster)(nil)
 	_ StorageCluster = (*Cluster)(nil)
 	_ StorageCluster = (*ClusterPair)(nil)
 	_ StorageCluster = NopCluster{}

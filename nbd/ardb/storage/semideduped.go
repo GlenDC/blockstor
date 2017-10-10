@@ -192,7 +192,7 @@ func ListSemiDedupedBlockIndices(vdiskID string, cluster *config.StorageClusterC
 
 	// try to get nondeduped' indices
 	ndIndices, err := ListNonDedupedBlockIndices(vdiskID, cluster)
-	if err == redis.ErrNil {
+	if err == ardb.ErrNil {
 		// no nondeduped' (user) indices found,
 		// so early exit with a sorted slice containing only deduped' indices
 		sortInt64s(indices)
@@ -372,8 +372,8 @@ func copySemiDedupedDifferentConnections(sourceID, targetID string, connA, connB
 	sourceKey := semiDedupBitMapKey(sourceID)
 
 	log.Infof("collecting semidedup bitmask from source vdisk %q...", sourceID)
-	bytes, err := redis.Bytes(connA.Do("GET", sourceKey))
-	if err == redis.ErrNil {
+	bytes, err := ardb.Bytes(connA.Do("GET", sourceKey))
+	if err == ardb.ErrNil {
 		err = nil
 		log.Infof("no semidedup bitmask found for source vdisk %q...", sourceID)
 		return // nothing to do, as there is no bitmask
