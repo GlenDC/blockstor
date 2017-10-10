@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -44,39 +45,7 @@ type TemplateCluster struct {
 
 // Do implements StorageCluster.Do
 func (tsc *TemplateCluster) Do(action ardb.StorageAction) (reply interface{}, err error) {
-	tsc.mux.RLock()
-	defer tsc.mux.RUnlock()
-
-	// compute server index of first available server
-	serverIndex, err := ardb.FindFirstServerIndex(tsc.serverCount, tsc.serverIsOnline)
-	if err != nil {
-		return nil, err
-	}
-
-	// establish a connection for that serverIndex
-	cfg := tsc.servers[serverIndex]
-	conn, err := tsc.pool.Dial(cfg)
-	if err == nil {
-		defer conn.Close()
-		reply, err = action.Do(conn)
-		if err == nil {
-			return reply, nil
-		}
-	}
-
-	// an error has occured, broadcast it to AYS
-	status := mapErrorToBroadcastStatus(err)
-	log.Broadcast(
-		status,
-		log.SubjectStorage,
-		log.ARDBServerTimeoutBody{
-			Address:  cfg.Address,
-			Database: cfg.Database,
-			Type:     log.ARDBTemplateServer,
-			VdiskID:  tsc.vdiskID,
-		},
-	)
-	return nil, err
+	return nil, ErrMethodNotSupported
 }
 
 // DoFor implements StorageCluster.DoFor
@@ -267,3 +236,9 @@ func mapErrorToBroadcastStatus(err error) log.MessageStatus {
 
 	return log.StatusUnknownError
 }
+
+var (
+	// ErrMethodNotSupported is an error returned
+	// in case a method is called which is not supported by the object.
+	ErrMethodNotSupported = errors.New("method is not supported")
+)
