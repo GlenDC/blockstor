@@ -16,6 +16,22 @@ import (
 // add server states (and stub handling)
 // https://github.com/zero-os/0-Disk/issues/455
 
+// NewPrimarySlaveClusterPair creates a new PrimarySlaveClusterPair.
+// See `PrimarySlaveClusterPair` for more information.
+func NewPrimarySlaveClusterPair(ctx context.Context, vdiskID string, cs config.Source) (*PrimarySlaveClusterPair, error) {
+	primarySlaveClusterPair := &PrimarySlaveClusterPair{
+		vdiskID: vdiskID,
+		pool:    ardb.NewPool(nil),
+	}
+	err := primarySlaveClusterPair.spawnConfigReloader(ctx, cs)
+	if err != nil {
+		primarySlaveClusterPair.Close()
+		return nil, err
+	}
+
+	return primarySlaveClusterPair, nil
+}
+
 // PrimarySlaveClusterPair defines a vdisk's primary-slave cluster pair.
 // It supports hot reloading of the configuration, self-healing of the clusters,
 // and the option for the slave cluster to not be defined at all.
@@ -147,18 +163,20 @@ func (cp *PrimarySlaveClusterPair) spawnConfigReloader(ctx context.Context, cs c
 	// and execute the initial config update iff
 	// an internal watcher is created.
 	var primaryWatcher, slaveWatcher storageClusterWatcher
-	_, err = primaryWatcher.SetClusterID(ctx, cs, cp.vdiskID, vdiskNBDConfig.StorageClusterID)
+	clusterExists, err := primaryWatcher.SetClusterID(ctx, cs, cp.vdiskID, vdiskNBDConfig.StorageClusterID)
 	if err != nil {
 		return err
 	}
-	// it's guaranteed that the primary storage cluster exists (config-wise)
+	if !clusterExists {
+		panic("primary cluster should exist on a non-error path")
+	}
 	primaryClusterCfg = <-primaryWatcher.Receive()
 	err = cp.updatePrimaryStorageConfig(primaryClusterCfg)
 	if err != nil {
 		return err
 	}
 
-	clusterExists, err := slaveWatcher.SetClusterID(
+	clusterExists, err = slaveWatcher.SetClusterID(
 		ctx, cs, cp.vdiskID, vdiskNBDConfig.SlaveStorageClusterID)
 	if err != nil {
 		return err
@@ -186,13 +204,14 @@ func (cp *PrimarySlaveClusterPair) spawnConfigReloader(ctx context.Context, cs c
 					log.Errorf("failed to watch new primary cluster config: %v", err)
 				}
 
+				slaveClusterWasDefined := slaveWatcher.Defined()
 				clusterExists, err = slaveWatcher.SetClusterID(
 					ctx, cs, cp.vdiskID, vdiskNBDConfig.SlaveStorageClusterID)
 				if err != nil {
 					log.Errorf("failed to watch new slave cluster config: %v", err)
 					continue
 				}
-				if !clusterExists {
+				if slaveClusterWasDefined && !clusterExists {
 					// no cluster exists any longer, we need to delete the old state
 					cp.mux.Lock()
 					cp.slaveServers, cp.slaveServerCount = nil, 0
@@ -369,13 +388,14 @@ func (tsc *TemplateCluster) spawnConfigReloader(ctx context.Context, cs config.S
 
 			// handle clusterID reference updates
 			case vdiskNBDConfig = <-vdiskNBDRefCh:
+				clusterWasDefined := watcher.Defined()
 				clusterExists, err = watcher.SetClusterID(
 					ctx, cs, tsc.vdiskID, vdiskNBDConfig.TemplateStorageClusterID)
 				if err != nil {
 					log.Errorf("failed to watch new template cluster config: %v", err)
 					continue
 				}
-				if !clusterExists {
+				if clusterWasDefined && !clusterExists {
 					// no cluster exists any longer, we need to delete the old state
 					tsc.mux.Lock()
 					tsc.servers, tsc.serverCount = nil, 0
@@ -423,13 +443,13 @@ type storageClusterWatcher struct {
 }
 
 // Receive an update on the returned channel by the storageClusterWatcher.
-func (scw storageClusterWatcher) Receive() <-chan config.StorageClusterConfig {
+func (scw *storageClusterWatcher) Receive() <-chan config.StorageClusterConfig {
 	return scw.channel
 }
 
 // Close all open resources,
 // openend and managed by this storageClusterWatcher
-func (scw storageClusterWatcher) Close() {
+func (scw *storageClusterWatcher) Close() {
 	if scw.cancel != nil {
 		scw.cancel()
 	}
@@ -441,18 +461,18 @@ func (scw storageClusterWatcher) Close() {
 // In all other cases a new watcher will be attempted to be created,
 // and used if succesfull (right before cancelling the old one), or otherwise an error is returned.
 // In an error case the boolean parameter indicates whether a watcher is active or not.
-func (scw storageClusterWatcher) SetClusterID(ctx context.Context, cs config.Source, vdiskID, clusterID string) (bool, error) {
+func (scw *storageClusterWatcher) SetClusterID(ctx context.Context, cs config.Source, vdiskID, clusterID string) (bool, error) {
 	if scw.clusterID == clusterID {
 		// if the given ID is equal to the one we have stored internally,
 		// we have nothing to do.
 		// Returning true, such that no existing cluster info is deleted by accident.
-		return true, nil
+		return scw.clusterID != "", nil
 	}
 
 	// if the given clusterID is nil, but ours isn't,
 	// we'll simply want to close the watcher and clean up our internal state.
 	if clusterID == "" {
-		scw.Close()
+		scw.cancel()
 		scw.cancel = nil
 		scw.clusterID = ""
 		return false, nil // no watcher is active, as no cluster exists
@@ -475,6 +495,12 @@ func (scw storageClusterWatcher) SetClusterID(ctx context.Context, cs config.Sou
 	scw.clusterID = clusterID
 	scw.channel = channel
 	return true, nil // a watcher is active, because the cluster exists
+}
+
+// Defined returns `true` if this storage cluster watcher
+// has an internal watcher (for an existing cluster) defined.
+func (scw *storageClusterWatcher) Defined() bool {
+	return scw.clusterID != ""
 }
 
 // mapErrorToBroadcastStatus maps the given error,
