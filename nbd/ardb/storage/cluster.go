@@ -136,29 +136,21 @@ func (tsc *TemplateCluster) spawnConfigReloader(ctx context.Context, cs config.S
 	templateClusterID := vdiskNBDConfig.TemplateStorageClusterID
 
 	var templateClusterCfg config.StorageClusterConfig
-	var templateClusterCh <-chan config.StorageClusterConfig
-
-	templateCtx, templateCancel := context.WithCancel(ctx)
-
+	var watcher *storageClusterWatcher
 	if templateClusterID != "" {
-		templateClusterCh, err = config.WatchStorageClusterConfig(
-			templateCtx, cs, vdiskNBDConfig.TemplateStorageClusterID)
+		watcher, err = newStorageClusterWatcher(ctx, cs, templateClusterID)
 		if err != nil {
-			templateCancel()
 			return err
 		}
 
-		templateClusterCfg = <-templateClusterCh
+		templateClusterCfg = <-watcher.Receive()
 		err = tsc.updateStorageConfig(templateClusterCfg)
 		if err != nil {
-			templateCancel()
 			return err
 		}
 	}
 
 	go func() {
-		defer templateCancel()
-
 		for {
 			select {
 			case <-ctx.Done():
@@ -170,24 +162,23 @@ func (tsc *TemplateCluster) spawnConfigReloader(ctx context.Context, cs config.S
 				}
 				if vdiskNBDConfig.TemplateStorageClusterID == "" {
 					templateClusterID = ""
-					templateClusterCh = nil
-					templateCancel()
+					watcher.Close()
+					watcher = nil
 					continue
 				}
 
-				templateCtx, temCancel := context.WithCancel(ctx)
-				temCh, err := config.WatchStorageClusterConfig(
-					templateCtx, cs, vdiskNBDConfig.TemplateStorageClusterID)
+				newWatcher, err := newStorageClusterWatcher(
+					ctx, cs, vdiskNBDConfig.TemplateStorageClusterID)
 				if err != nil {
-					temCancel()
 					log.Errorf("failed to watch new template cluster config: %v", err)
 					continue
 				}
-				templateClusterCh = temCh
-				templateCancel()
-				templateCancel = temCancel
 
-			case templateClusterCfg = <-templateClusterCh:
+				watcher.Close()
+				watcher = newWatcher
+				templateClusterID = vdiskNBDConfig.TemplateStorageClusterID
+
+			case templateClusterCfg = <-watcher.Receive():
 				err = tsc.updateStorageConfig(templateClusterCfg)
 				if err != nil {
 					log.Errorf("failed to update new template cluster config: %v", err)
@@ -217,6 +208,47 @@ func (tsc *TemplateCluster) updateStorageConfig(cfg config.StorageClusterConfig)
 // the server on the given index is online.
 func (tsc *TemplateCluster) serverIsOnline(index int64) bool {
 	return tsc.servers[index].State == config.StorageServerStateOnline
+}
+
+// newStorageClusterWatcher creates a new Storage Cluster Watcher if possible
+func newStorageClusterWatcher(ctx context.Context, cs config.Source, clusterID string) (*storageClusterWatcher, error) {
+	var scw storageClusterWatcher
+	err := scw.spawnConfigWatchGoroutine(ctx, cs, clusterID)
+	if err != nil {
+		scw.Close()
+		return nil, err
+	}
+
+	return &scw, nil
+}
+
+type storageClusterWatcher struct {
+	channel <-chan config.StorageClusterConfig
+	cancel  context.CancelFunc
+}
+
+// Receive an update on the returned channel by the storageClusterWatcher.
+func (scw *storageClusterWatcher) Receive() <-chan config.StorageClusterConfig {
+	if scw == nil {
+		return nil
+	}
+
+	return scw.channel
+}
+
+// Close all open resources,
+// openend and managed by this storageClusterWatcher
+func (scw *storageClusterWatcher) Close() {
+	if scw == nil {
+		return // nothing to do
+	}
+	scw.cancel()
+}
+
+func (scw *storageClusterWatcher) spawnConfigWatchGoroutine(ctx context.Context, cs config.Source, clusterID string) (err error) {
+	ctx, scw.cancel = context.WithCancel(ctx)
+	scw.channel, err = config.WatchStorageClusterConfig(ctx, cs, clusterID)
+	return
 }
 
 // mapErrorToBroadcastStatus maps the given error,
