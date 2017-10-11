@@ -308,7 +308,7 @@ func CopyNonDeduped(sourceID, targetID string, sourceCluster, targetCluster *con
 	return nil
 }
 
-func copyNonDedupedSameConnection(sourceID, targetID string, conn redis.Conn) (err error) {
+func copyNonDedupedSameConnection(sourceID, targetID string, conn ardb.Conn) (err error) {
 	log.Infof("dumping vdisk %q and restoring it as vdisk %q",
 		sourceID, targetID)
 
@@ -324,7 +324,7 @@ func copyNonDedupedSameConnection(sourceID, targetID string, conn redis.Conn) (e
 	return
 }
 
-func copyNonDedupedDifferentConnections(sourceID, targetID string, connA, connB redis.Conn) (err error) {
+func copyNonDedupedDifferentConnections(sourceID, targetID string, connA, connB ardb.Conn) (err error) {
 	sourceKey := nonDedupedStorageKey(sourceID)
 	targetKey := nonDedupedStorageKey(targetID)
 

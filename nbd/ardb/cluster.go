@@ -272,6 +272,20 @@ func (cluster NopCluster) DoFor(objectIndex int64, action StorageAction) (reply 
 // for a callee-owned cluster object is valid.
 type ServerIndexPredicate func(serverIndex int64) bool
 
+// FindFirstAvailableServerConfig iterates through all storage servers
+// until it finds a server which state indicates its available.
+// If no such server exists, ErrNoServersAvailable is returned.
+func FindFirstAvailableServerConfig(cfg config.StorageClusterConfig) (serverCfg config.StorageServerConfig, err error) {
+	for _, serverCfg = range cfg.Servers {
+		if serverCfg.State == config.StorageServerStateOnline {
+			return
+		}
+	}
+
+	err = ErrNoServersAvailable
+	return
+}
+
 // FindFirstServerIndex iterates through all servers
 // until the predicate for a server index returns true.
 // If no index evaluates to true, ErrNoServersAvailable is returned.
