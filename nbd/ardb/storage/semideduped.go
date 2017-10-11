@@ -8,6 +8,7 @@ import (
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 )
 
 // SemiDeduped returns a semi deduped BlockStorage
@@ -141,7 +142,7 @@ func (sds *semiDedupedStorage) Close() error {
 
 // readBitMap reads and decompresses (gzip) the bitmap from the ardb
 func (sds *semiDedupedStorage) readBitMap() error {
-	cmd := ardb.Command("GET", semiDedupBitMapKey(sds.vdiskID))
+	cmd := ardb.Command(command.Get, semiDedupBitMapKey(sds.vdiskID))
 	bytes, err := ardb.Bytes(sds.cluster.Do(cmd))
 	if err != nil {
 		return err
@@ -156,7 +157,7 @@ func (sds *semiDedupedStorage) writeBitMap() error {
 		return err
 	}
 
-	cmd := ardb.Command("SET", semiDedupBitMapKey(sds.vdiskID), bytes)
+	cmd := ardb.Command(command.Set, semiDedupBitMapKey(sds.vdiskID), bytes)
 	return ardb.Error(sds.cluster.Do(cmd))
 }
 

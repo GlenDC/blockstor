@@ -2,6 +2,7 @@ package lba
 
 import (
 	"github.com/zero-os/0-Disk/nbd/ardb"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 )
 
 // SectorStorage defines the API for a persistent storage,
@@ -37,7 +38,7 @@ type ardbSectorStorage struct {
 
 // GetSector implements sectorStorage.GetSector
 func (s *ardbSectorStorage) GetSector(index int64) (*Sector, error) {
-	reply, err := s.cluster.Do(ardb.Command("HGET", s.key, index))
+	reply, err := s.cluster.Do(ardb.Command(command.HashGet, s.key, index))
 	if reply == nil {
 		return NewSector(), nil
 	}
@@ -54,9 +55,9 @@ func (s *ardbSectorStorage) GetSector(index int64) (*Sector, error) {
 func (s *ardbSectorStorage) SetSector(index int64, sector *Sector) error {
 	var cmd *ardb.StorageCommand
 	if data := sector.Bytes(); data == nil {
-		cmd = ardb.Command("HDEL", s.key, index)
+		cmd = ardb.Command(command.HashDelete, s.key, index)
 	} else {
-		cmd = ardb.Command("HSET", s.key, index, data)
+		cmd = ardb.Command(command.HashSet, s.key, index, data)
 	}
 
 	return ardb.Error(s.cluster.Do(cmd))

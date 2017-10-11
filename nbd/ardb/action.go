@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/garyburd/redigo/redis"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 )
 
 // StorageAction defines the interface of an
@@ -11,21 +12,22 @@ import (
 type StorageAction interface {
 	// Do applies this StorageAction to a given ARDB connection.
 	Do(conn Conn) (reply interface{}, err error)
-}
 
-// StorageBufferAction defines the interface of an
-// action which can be buffered together with other commands,
-// such that they can all be applied together to a given ARDB connection.
-type StorageBufferAction interface {
 	// Send buffers the StorageAction to be aplied to a given ARDB connection.
 	Send(conn Conn) (err error)
+
+	// Write returns true in case the action writes to the ARDB connection.
+	Write() bool
+
+	// Keys returns the keys that are written to the ARDB connection.
+	Keys() []string
 }
 
 // Command creates a single command on the fly,
 // ready to be used as a(n) (ARDB) StorageAction.
-func Command(name string, args ...interface{}) *StorageCommand {
+func Command(ct command.Type, args ...interface{}) *StorageCommand {
 	return &StorageCommand{
-		Name:      name,
+		Type:      ct,
 		Arguments: args,
 	}
 }
@@ -34,7 +36,7 @@ func Command(name string, args ...interface{}) *StorageCommand {
 // to encapsulate a commandName and arguments,
 // such that it can be (re)used as a StorageAction.
 type StorageCommand struct {
-	Name      string
+	Type      command.Type
 	Arguments []interface{}
 }
 
@@ -44,23 +46,40 @@ func (cmd *StorageCommand) Do(conn Conn) (reply interface{}, err error) {
 		return nil, errNoCommandDefined
 	}
 
-	return conn.Do(cmd.Name, cmd.Arguments...)
+	return conn.Do(cmd.Type.Name, cmd.Arguments...)
 }
 
-// Send implements StorageBufferAction.Send
+// Send implements StorageAction.Send
 func (cmd *StorageCommand) Send(conn Conn) error {
 	if cmd == nil {
 		return errNoCommandDefined
 	}
-	return conn.Send(cmd.Name, cmd.Arguments...)
+	return conn.Send(cmd.Type.Name, cmd.Arguments...)
+}
+
+// Write implements StorageAction.Write
+func (cmd *StorageCommand) Write() bool {
+	if cmd == nil {
+		return false
+	}
+	return cmd.Type.Write
+}
+
+// Keys implements StorageAction.Keys
+func (cmd *StorageCommand) Keys() []string {
+	if cmd == nil || !cmd.Type.Write || len(cmd.Arguments) == 0 {
+		return nil
+	}
+	return []string{cmd.Arguments[0].(string)}
 }
 
 // Script creates a single script on the fly,
 // ready to be used as a(n) (ARDB) StorageAction.
-func Script(keyCount int, src string, keysAndArgs ...interface{}) *StorageScript {
+func Script(keyCount int, src string, valueKeys []string, keysAndArgs ...interface{}) *StorageScript {
 	return &StorageScript{
 		Script:           redis.NewScript(keyCount, src),
 		KeysAndArguments: keysAndArgs,
+		ValueKeys:        valueKeys,
 	}
 }
 
@@ -70,6 +89,8 @@ func Script(keyCount int, src string, keysAndArgs ...interface{}) *StorageScript
 type StorageScript struct {
 	Script           *redis.Script
 	KeysAndArguments []interface{}
+	// ValueKeys is a list of keys which is written to the ARDB connection.
+	ValueKeys []string // TODO: define this automatically
 }
 
 // Do implements StorageAction.Do
@@ -81,7 +102,7 @@ func (cmd *StorageScript) Do(conn Conn) (reply interface{}, err error) {
 	return cmd.Script.Do(conn, cmd.KeysAndArguments...)
 }
 
-// Send implements StorageBufferAction.Send
+// Send implements StorageAction.Send
 func (cmd *StorageScript) Send(conn Conn) error {
 	if cmd == nil || cmd.Script == nil {
 		return errNoCommandDefined
@@ -89,9 +110,27 @@ func (cmd *StorageScript) Send(conn Conn) error {
 	return cmd.Script.Send(conn, cmd.KeysAndArguments...)
 }
 
+// Write implements StorageAction.Write
+func (cmd *StorageScript) Write() bool {
+	if cmd == nil {
+		return false
+	}
+
+	// TODO: define automatically if a script actually writes
+	return true
+}
+
+// Keys implements StorageAction.Keys
+func (cmd *StorageScript) Keys() []string {
+	if cmd == nil {
+		return nil
+	}
+	return cmd.ValueKeys
+}
+
 // Commands creates a slice of commands on the fly,
 // ready to be used as a(n) (ARDB) StorageAction.
-func Commands(cmds ...StorageBufferAction) *StorageCommands {
+func Commands(cmds ...StorageAction) *StorageCommands {
 	return &StorageCommands{commands: cmds}
 }
 
@@ -99,7 +138,7 @@ func Commands(cmds ...StorageBufferAction) *StorageCommands {
 // to encapsulate a slice of commands (see: StorageCommand),
 // such that it can be (re)used as a StorageAction.
 type StorageCommands struct {
-	commands []StorageBufferAction
+	commands []StorageAction
 }
 
 // Do implements StorageAction.Do
@@ -135,6 +174,56 @@ func (cmds *StorageCommands) Do(conn Conn) (replies interface{}, err error) {
 	// success, return all replies
 	return allReplies, nil
 }
+
+// Send implements StorageAction.Send
+func (cmds *StorageCommands) Send(conn Conn) (err error) {
+	if cmds == nil {
+		return nil
+	}
+
+	for _, cmd := range cmds.commands {
+		err = cmd.Send(conn)
+		if err != nil {
+			return
+		}
+	}
+
+	return nil
+}
+
+// Write implements StorageAction.Write
+func (cmds *StorageCommands) Write() (w bool) {
+	if cmds == nil {
+		return
+	}
+
+	for _, cmd := range cmds.commands {
+		w = cmd.Write()
+		if w {
+			return
+		}
+	}
+
+	return
+}
+
+// Keys implements StorageAction.Keys
+func (cmds *StorageCommands) Keys() (keys []string) {
+	if cmds == nil {
+		return
+	}
+
+	for _, cmd := range cmds.commands {
+		keys = append(keys, cmd.Keys()...)
+	}
+	return
+}
+
+var (
+	_ StorageAction = (*StorageCommand)(nil)
+	_ StorageAction = (*StorageCommands)(nil)
+	_ StorageAction = (*StorageScript)(nil)
+)
 
 // Various action-related errors returned by this file.
 var (
