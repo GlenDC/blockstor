@@ -67,10 +67,18 @@ func TestTlogStorageWithDeduped(t *testing.T) {
 		blockCount = 8
 	)
 
-	redisProvider := redisstub.NewInMemoryRedisProvider(nil)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+	pool := ardb.NewPool(nil)
+	defer pool.Close()
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
+
 	storage, err := storage.Deduped(
 		vdiskID, blockSize,
-		ardb.DefaultLBACacheLimit, false, redisProvider)
+		ardb.DefaultLBACacheLimit, cluster, nil)
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -88,10 +96,17 @@ func TestTlogStorageForceFlushWithDeduped(t *testing.T) {
 		blockCount = 8
 	)
 
-	redisProvider := redisstub.NewInMemoryRedisProvider(nil)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+	pool := ardb.NewPool(nil)
+	defer pool.Close()
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
 	storage, err := storage.Deduped(
 		vdiskID, blockSize,
-		ardb.DefaultLBACacheLimit, false, redisProvider)
+		ardb.DefaultLBACacheLimit, cluster, nil)
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -108,9 +123,17 @@ func TestTlogStorageWithNondeduped(t *testing.T) {
 		blockSize = 8
 	)
 
-	redisProvider := redisstub.NewInMemoryRedisProvider(nil)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+	pool := ardb.NewPool(nil)
+	defer pool.Close()
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
+
 	storage, err := storage.NonDeduped(
-		vdiskID, "", blockSize, false, redisProvider)
+		vdiskID, "", blockSize, cluster, nil)
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -127,9 +150,16 @@ func TestTlogStorageForceFlushWithNondeduped(t *testing.T) {
 		blockSize = 8
 	)
 
-	redisProvider := redisstub.NewInMemoryRedisProvider(nil)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+	pool := ardb.NewPool(nil)
+	defer pool.Close()
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
+	if err != nil {
+		t.Fatalf("couldn't create cluster: %v", err)
+	}
 	storage, err := storage.NonDeduped(
-		vdiskID, "", blockSize, false, redisProvider)
+		vdiskID, "", blockSize, cluster, nil)
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -203,43 +233,59 @@ func newTlogTestServer(ctx context.Context, t *testing.T, vdiskID string) (strin
 }
 
 func TestTlogDedupedStorageReplay(t *testing.T) {
-	var connProvider ardb.ConnProvider
+	var mr *redisstub.MemoryRedis
+	var pool *ardb.Pool
 	defer func() {
-		if connProvider != nil {
-			connProvider.Close()
+		if mr != nil {
+			mr.Close()
+			pool.Close()
 		}
 	}()
 
 	createDedupedStorage := func(vdiskID string, vdiskSize, blockSize int64) (storage.BlockStorage, error) {
-		if connProvider != nil {
-			connProvider.Close()
+		if mr != nil {
+			mr.Close()
+			pool.Close()
 		}
 
-		connProvider = redisstub.NewInMemoryRedisProvider(nil)
+		mr = redisstub.NewMemoryRedis()
+		pool = ardb.NewPool(nil)
+		cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
+		if err != nil {
+			t.Fatalf("couldn't create cluster: %v", err)
+		}
 		return storage.Deduped(
 			vdiskID, blockSize,
-			ardb.DefaultLBACacheLimit, false, connProvider)
+			ardb.DefaultLBACacheLimit, cluster, nil)
 	}
 
 	testTlogStorageReplay(t, createDedupedStorage)
 }
 
 func TestTlogNonDedupedStorageReplay(t *testing.T) {
-	var connProvider ardb.ConnProvider
+	var mr *redisstub.MemoryRedis
+	var pool *ardb.Pool
 	defer func() {
-		if connProvider != nil {
-			connProvider.Close()
+		if mr != nil {
+			mr.Close()
+			pool.Close()
 		}
 	}()
 
 	createNonDedupedStorage := func(vdiskID string, vdiskSize, blockSize int64) (storage.BlockStorage, error) {
-		if connProvider != nil {
-			connProvider.Close()
+		if mr != nil {
+			mr.Close()
+			pool.Close()
 		}
 
-		connProvider = redisstub.NewInMemoryRedisProvider(nil)
+		mr = redisstub.NewMemoryRedis()
+		pool = ardb.NewPool(nil)
+		cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
+		if err != nil {
+			t.Fatalf("couldn't create cluster: %v", err)
+		}
 		return storage.NonDeduped(
-			vdiskID, "", blockSize, false, connProvider)
+			vdiskID, "", blockSize, cluster, nil)
 	}
 
 	testTlogStorageReplay(t, createNonDedupedStorage)

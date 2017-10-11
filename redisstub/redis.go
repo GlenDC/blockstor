@@ -80,14 +80,10 @@ func (mr *MemoryRedis) address() string {
 	return mr.addr
 }
 
-// StorageClusterConfig returns a new StorageClusterConfig,
+// StorageServerConfig returns a new StorageServerConfig,
 // usable to connect to this in-memory redis-compatible ledisdb.
-func (mr *MemoryRedis) StorageClusterConfig() config.StorageClusterConfig {
-	return config.StorageClusterConfig{
-		Servers: []config.StorageServerConfig{
-			config.StorageServerConfig{Address: mr.address()},
-		},
-	}
+func (mr *MemoryRedis) StorageServerConfig() config.StorageServerConfig {
+	return config.StorageServerConfig{Address: mr.address()}
 }
 
 // Listen to any incoming TCP requests,

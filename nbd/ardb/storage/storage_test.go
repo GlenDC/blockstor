@@ -458,8 +458,7 @@ func testStorageGetOp(key string, expected interface{}) storageOp {
 func TestStorageOpPipeline(t *testing.T) {
 	memRedis := redisstub.NewMemoryRedis()
 	defer memRedis.Close()
-	clusterConfig := memRedis.StorageClusterConfig()
-	cfg := clusterConfig.Servers[0]
+	cfg := memRedis.StorageServerConfig()
 
 	var pipeline storageOpPipeline
 

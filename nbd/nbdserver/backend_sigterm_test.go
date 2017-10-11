@@ -17,7 +17,14 @@ import (
 )
 
 func TestBackendSigtermHandler(t *testing.T) {
-	provider := redisstub.NewInMemoryRedisProvider(nil)
+	mr := redisstub.NewMemoryRedis()
+	defer mr.Close()
+	pool := ardb.NewPool(nil)
+	defer pool.Close()
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
+	if err != nil {
+		t.Fatalf("couldn't create uni ardb cluster")
+	}
 
 	const (
 		vdiskID    = "a"
@@ -26,13 +33,12 @@ func TestBackendSigtermHandler(t *testing.T) {
 		blockCount = size / blockSize
 	)
 
-	var err error
 	var blockStorage storage.BlockStorage
 	ctx := context.Background()
 
 	blockStorage, err = storage.Deduped(
 		vdiskID, blockSize,
-		ardb.DefaultLBACacheLimit, false, provider)
+		ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil {
 		t.Fatalf("couldn't create deduped block storage: %v", err)
 	}
@@ -40,7 +46,7 @@ func TestBackendSigtermHandler(t *testing.T) {
 	// test Deduped Storage
 	testBackendSigtermHandler(ctx, t, vdiskID, blockSize, size, blockStorage)
 
-	blockStorage, err = storage.NonDeduped(vdiskID, "", blockSize, false, provider)
+	blockStorage, err = storage.NonDeduped(vdiskID, "", blockSize, cluster, nil)
 	if err != nil {
 		t.Fatalf("couldn't create nondeduped block storage: %v", err)
 	}
@@ -62,7 +68,7 @@ func TestBackendSigtermHandler(t *testing.T) {
 			Servers: []string{tlogrpc},
 		})
 
-		tls, err := tlog.Storage(ctx, vdiskID, "tlogcluster", source, blockSize, storage, provider, nil)
+		tls, err := tlog.Storage(ctx, vdiskID, "tlogcluster", source, blockSize, storage, cluster, nil)
 		require.NoError(t, err)
 		require.NotNil(t, tls)
 

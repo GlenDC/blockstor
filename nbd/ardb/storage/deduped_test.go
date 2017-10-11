@@ -81,7 +81,7 @@ func TestDedupedContent(t *testing.T) {
 
 	mr := redisstub.NewMemoryRedis()
 	defer mr.Close()
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestDedupedContentForceFlush(t *testing.T) {
 
 	mr := redisstub.NewMemoryRedis()
 	defer mr.Close()
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestDedupedDeadlock(t *testing.T) {
 	pool := ardb.NewPool(nil)
 	defer pool.Close()
 
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), pool)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
 	if err != nil {
 		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestGetPrimaryOrTemplateContent(t *testing.T) {
 
 	mrA := redisstub.NewMemoryRedis()
 	defer mrA.Close()
-	clusterA, err := ardb.NewCluster(mrA.StorageClusterConfig(), nil)
+	clusterA, err := ardb.NewUniCluster(mrA.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("in-memory ardb cluster (a) could not be created: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestGetPrimaryOrTemplateContent(t *testing.T) {
 
 	mrB := redisstub.NewMemoryRedis()
 	defer mrB.Close()
-	clusterB, err := ardb.NewCluster(mrB.StorageClusterConfig(), nil)
+	clusterB, err := ardb.NewUniCluster(mrB.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("in-memory ardb cluster (b) could not be created: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestDedupedStorageTemplateServerDown(t *testing.T) {
 
 	mrA := redisstub.NewMemoryRedis()
 	defer mrA.Close()
-	clusterA, err := ardb.NewCluster(mrA.StorageClusterConfig(), nil)
+	clusterA, err := ardb.NewUniCluster(mrA.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("in-memory ardb cluster (a) could not be created: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestDedupedStorageTemplateServerDown(t *testing.T) {
 
 	mrB := redisstub.NewMemoryRedis()
 	defer mrB.Close()
-	clusterB, err := ardb.NewCluster(mrB.StorageClusterConfig(), nil)
+	clusterB, err := ardb.NewUniCluster(mrB.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("in-memory ardb cluster (b) could not be created: %v", err)
 	}
@@ -499,8 +499,9 @@ func TestListDedupedBlockIndices(t *testing.T) {
 
 	mr := redisstub.NewMemoryRedis()
 	defer mr.Close()
-	clusterConfig := mr.StorageClusterConfig()
-	cluster, err := ardb.NewCluster(clusterConfig, nil)
+	serverConfig := mr.StorageServerConfig()
+	clusterConfig := config.StorageClusterConfig{Servers: []config.StorageServerConfig{serverConfig}}
+	cluster, err := ardb.NewUniCluster(serverConfig, nil)
 
 	storage, err := Deduped(
 		vdiskID, blockSize, ardb.DefaultLBACacheLimit, cluster, nil)
