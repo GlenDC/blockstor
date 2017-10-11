@@ -22,13 +22,9 @@ func TestSemiDedupedContentBasic(t *testing.T) {
 		templateContentB = []byte{8, 7, 6, 5, 4, 3, 2, 1}
 	)
 
-	templateMR := redisstub.NewMemoryRedis()
-	defer templateMR.Close()
+	templateCluster := redisstub.NewUniCluster(false)
+	defer templateCluster.Close()
 
-	templateCluster, err := ardb.NewUniCluster(templateMR.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create template cluster: %v", err)
-	}
 	func() {
 		template, err := Deduped(
 			"template", blockCount,
@@ -53,13 +49,8 @@ func TestSemiDedupedContentBasic(t *testing.T) {
 		}
 	}()
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(false)
+	defer cluster.Close()
 
 	copyTestMetaData(t, "template", "a", templateCluster, cluster)
 

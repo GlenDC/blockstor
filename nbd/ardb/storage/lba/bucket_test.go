@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/redisstub"
 
 	"github.com/zero-os/0-Disk"
@@ -82,12 +81,8 @@ func TestBucketWithEmptyARDBStorage(t *testing.T) {
 		bucketSize        = bucketSectorCount * BytesPerSector
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(false)
+	defer cluster.Close()
 
 	ardbStorage := ARDBSectorStorage("foo", cluster)
 

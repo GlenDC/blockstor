@@ -40,14 +40,8 @@ func TestGenerate(t *testing.T) {
 	require.NoError(t, err)
 	defer mdServer.Stop()
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	pool := ardb.NewPool(nil)
-	defer pool.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(true)
+	defer cluster.Close()
 
 	// config source
 	confSource := config.NewStubSource()
@@ -70,7 +64,7 @@ func TestGenerate(t *testing.T) {
 	confSource.SetVdiskConfig(targetVdiskID, &staticConf)
 
 	storageClusterConf := &config.StorageClusterConfig{
-		Servers: []config.StorageServerConfig{mr.StorageServerConfig()},
+		Servers: []config.StorageServerConfig{cluster.StorageServerConfig()},
 	}
 
 	confSource.SetPrimaryStorageCluster(sourceVdiskID, nbdClusterID, storageClusterConf)

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/zero-os/0-Disk"
-	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/redisstub"
 )
 
@@ -34,12 +33,8 @@ func TestLBAWithEmptyARDBStorage(t *testing.T) {
 		bucketLimit = (sectors / 2) * BytesPerSector
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(false)
+	defer cluster.Close()
 
 	lba := newLBAWithStorageFactory(bucketCount, bucketLimit, func() SectorStorage {
 		return ARDBSectorStorage("foo", cluster)
