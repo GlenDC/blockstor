@@ -365,12 +365,12 @@ func copyDedupedDifferentServerCount(sourceID, targetID string, sourceCluster, t
 	return nil
 }
 
-func copyDedupedSameConnection(sourceID, targetID string, conn redis.Conn) (err error) {
+func copyDedupedSameConnection(sourceID, targetID string, conn ardb.Conn) (err error) {
 	log.Infof("dumping vdisk %q and restoring it as vdisk %q",
 		sourceID, targetID)
 
 	sourceKey, targetKey := lba.StorageKey(sourceID), lba.StorageKey(targetID)
-	indexCount, err := redis.Int64(copyDedupedSameConnScript.Do(conn, sourceKey, targetKey))
+	indexCount, err := ardb.Int64(copyDedupedSameConnScript.Do(conn, sourceKey, targetKey))
 	if err == nil {
 		log.Infof("copied %d meta indices to vdisk %q", indexCount, targetID)
 	}
@@ -378,7 +378,7 @@ func copyDedupedSameConnection(sourceID, targetID string, conn redis.Conn) (err 
 	return
 }
 
-func copyDedupedDifferentConnections(sourceID, targetID string, connA, connB redis.Conn) (err error) {
+func copyDedupedDifferentConnections(sourceID, targetID string, connA, connB ardb.Conn) (err error) {
 	sourceKey, targetKey := lba.StorageKey(sourceID), lba.StorageKey(targetID)
 
 	// get data from source connection

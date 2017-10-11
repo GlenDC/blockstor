@@ -340,7 +340,7 @@ func CopySemiDeduped(sourceID, targetID string, sourceCluster, targetCluster *co
 }
 
 // NOTE: copies bitmask only
-func copySemiDedupedSameConnection(sourceID, targetID string, conn redis.Conn) (hasBitMask bool, err error) {
+func copySemiDedupedSameConnection(sourceID, targetID string, conn ardb.Conn) (hasBitMask bool, err error) {
 	script := redis.NewScript(0, `
 local source = ARGV[1]
 local destination = ARGV[2]
@@ -363,12 +363,12 @@ return 1
 	sourceKey := semiDedupBitMapKey(sourceID)
 	targetKey := semiDedupBitMapKey(targetID)
 
-	hasBitMask, err = redis.Bool(script.Do(conn, sourceKey, targetKey))
+	hasBitMask, err = ardb.Bool(script.Do(conn, sourceKey, targetKey))
 	return
 }
 
 // NOTE: copies bitmask only
-func copySemiDedupedDifferentConnections(sourceID, targetID string, connA, connB redis.Conn) (hasBitMask bool, err error) {
+func copySemiDedupedDifferentConnections(sourceID, targetID string, connA, connB ardb.Conn) (hasBitMask bool, err error) {
 	sourceKey := semiDedupBitMapKey(sourceID)
 
 	log.Infof("collecting semidedup bitmask from source vdisk %q...", sourceID)
