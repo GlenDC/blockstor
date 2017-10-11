@@ -10,6 +10,7 @@ import (
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 	"github.com/zero-os/0-Disk/nbd/ardb/storage/lba"
 )
 
@@ -126,7 +127,7 @@ func (ds *dedupedStorage) Flush() (err error) {
 // getPrimaryContent gets content from the primary storage.
 // Assigned to (*dedupedStorage).getContent in case this storage has no template support.
 func (ds *dedupedStorage) getPrimaryContent(hash zerodisk.Hash) (content []byte, err error) {
-	cmd := ardb.Command("GET", hash.Bytes())
+	cmd := ardb.Command(command.Get, hash.Bytes())
 	return ardb.OptBytes(ds.cluster.DoFor(int64(hash[0]), cmd))
 }
 
@@ -144,7 +145,7 @@ func (ds *dedupedStorage) getPrimaryOrTemplateContent(hash zerodisk.Hash) (conte
 	}
 
 	// try to fetch it from the template storage
-	cmd := ardb.Command("GET", hash.Bytes())
+	cmd := ardb.Command(command.Get, hash.Bytes())
 	content, err = ardb.OptBytes(ds.templateCluster.DoFor(int64(hash[0]), cmd))
 	if err != nil {
 		// this error is returned, in case the cluster is simply not defined,
@@ -187,7 +188,7 @@ func (ds *dedupedStorage) getPrimaryOrTemplateContent(hash zerodisk.Hash) (conte
 // setContent if it doesn't exist yet,
 // and increase the reference counter, by adding this vdiskID
 func (ds *dedupedStorage) setContent(hash zerodisk.Hash, content []byte) error {
-	cmd := ardb.Command("SET", hash.Bytes(), content)
+	cmd := ardb.Command(command.Set, hash.Bytes(), content)
 	return ardb.Error(ds.cluster.DoFor(int64(hash[0]), cmd))
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 )
 
 // NonDeduped returns a non deduped BlockStorage
@@ -62,10 +63,10 @@ func (ss *nonDedupedStorage) SetBlock(blockIndex int64, content []byte) error {
 	// don't store zero blocks,
 	// and delete existing ones if they already existed
 	if ss.isZeroContent(content) {
-		cmd = ardb.Command("HDEL", ss.storageKey, blockIndex)
+		cmd = ardb.Command(command.HashDelete, ss.storageKey, blockIndex)
 	} else {
 		// content is not zero, so let's (over)write it
-		cmd = ardb.Command("HSET", ss.storageKey, blockIndex, content)
+		cmd = ardb.Command(command.HashSet, ss.storageKey, blockIndex, content)
 	}
 
 	return ardb.Error(ss.cluster.DoFor(blockIndex, cmd))
@@ -79,7 +80,7 @@ func (ss *nonDedupedStorage) GetBlock(blockIndex int64) (content []byte, err err
 
 // Delete implements BlockStorage.Delete
 func (ss *nonDedupedStorage) DeleteBlock(blockIndex int64) error {
-	cmd := ardb.Command("HDEL", ss.storageKey, blockIndex)
+	cmd := ardb.Command(command.HashDelete, ss.storageKey, blockIndex)
 	// delete the block defined for the block index (if it previously existed at all)
 	return ardb.Error(ss.cluster.DoFor(blockIndex, cmd))
 }
@@ -95,7 +96,7 @@ func (ss *nonDedupedStorage) Close() error { return nil }
 
 // (*nonDedupedStorage).getContent in case storage has no template support
 func (ss *nonDedupedStorage) getPrimaryContent(blockIndex int64) (content []byte, err error) {
-	cmd := ardb.Command("HGET", ss.storageKey, blockIndex)
+	cmd := ardb.Command(command.HashGet, ss.storageKey, blockIndex)
 	return ardb.OptBytes(ss.cluster.DoFor(blockIndex, cmd))
 }
 
@@ -106,7 +107,7 @@ func (ss *nonDedupedStorage) getPrimaryOrTemplateContent(blockIndex int64) (cont
 		return // critical err, or content is found
 	}
 
-	cmd := ardb.Command("HGET", ss.storageKey, blockIndex)
+	cmd := ardb.Command(command.HashGet, ss.storageKey, blockIndex)
 	content, err = ardb.OptBytes(ss.templateCluster.DoFor(blockIndex, cmd))
 	if err != nil {
 		// this error is returned, in case the cluster is simply not defined,

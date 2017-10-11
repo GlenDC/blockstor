@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 	"github.com/zero-os/0-Disk/redisstub"
 )
 
@@ -18,7 +19,7 @@ import (
 func testNondedupContentExists(t *testing.T, cluster ardb.StorageCluster, vdiskID string, blockIndex int64, content []byte) {
 	storageKey := nonDedupedStorageKey(vdiskID)
 	contentReceived, err := ardb.Bytes(
-		cluster.DoFor(blockIndex, ardb.Command("HGET", storageKey, blockIndex)))
+		cluster.DoFor(blockIndex, ardb.Command(command.HashGet, storageKey, blockIndex)))
 	if err != nil {
 		debug.PrintStack()
 		t.Fatal(err)
@@ -36,7 +37,7 @@ func testNondedupContentExists(t *testing.T, cluster ardb.StorageCluster, vdiskI
 func testNondedupContentDoesNotExist(t *testing.T, cluster ardb.StorageCluster, vdiskID string, blockIndex int64, content []byte) {
 	storageKey := nonDedupedStorageKey(vdiskID)
 	contentReceived, err := ardb.Bytes(
-		cluster.DoFor(blockIndex, ardb.Command("HGET", storageKey, blockIndex)))
+		cluster.DoFor(blockIndex, ardb.Command(command.HashGet, storageKey, blockIndex)))
 
 	if err != nil || bytes.Compare(content, contentReceived) != 0 {
 		return

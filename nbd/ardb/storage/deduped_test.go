@@ -13,6 +13,7 @@ import (
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 	"github.com/zero-os/0-Disk/nbd/ardb/storage/lba"
 	"github.com/zero-os/0-Disk/redisstub"
 )
@@ -20,16 +21,16 @@ import (
 // simplified algorithm based on `cmd/copyvdisk/copy_different.go`
 func copyTestMetaData(t *testing.T, vdiskIDA, vdiskIDB string, clusterA, clusterB ardb.StorageCluster) {
 	data, err := ardb.Int64ToBytesMapping(
-		clusterA.Do(ardb.Command("HGETALL", lba.StorageKey(vdiskIDA))))
+		clusterA.Do(ardb.Command(command.HashGetAll, lba.StorageKey(vdiskIDA))))
 	if err != nil {
 		debug.PrintStack()
 		t.Fatal(err)
 	}
 
-	cmds := []ardb.StorageBufferAction{ardb.Command("DEL", lba.StorageKey(vdiskIDB))}
+	cmds := []ardb.StorageAction{ardb.Command(command.Delete, lba.StorageKey(vdiskIDB))}
 	for index, hash := range data {
 		cmds = append(cmds,
-			ardb.Command("HSET", lba.StorageKey(vdiskIDB), index, hash))
+			ardb.Command(command.HashSet, lba.StorageKey(vdiskIDB), index, hash))
 	}
 
 	_, err = clusterB.Do(ardb.Commands(cmds...))
@@ -44,7 +45,7 @@ func copyTestMetaData(t *testing.T, vdiskIDA, vdiskIDB string, clusterA, cluster
 func testDedupContentExists(t *testing.T, cluster ardb.StorageCluster, content []byte) {
 	hash := zerodisk.HashBytes(content).Bytes()
 	contentReceived, err := ardb.Bytes(
-		cluster.DoFor(int64(hash[0]), ardb.Command("GET", hash)))
+		cluster.DoFor(int64(hash[0]), ardb.Command(command.Get, hash)))
 	if err != nil {
 		debug.PrintStack()
 		t.Fatal(err)
@@ -62,7 +63,7 @@ func testDedupContentExists(t *testing.T, cluster ardb.StorageCluster, content [
 func testDedupContentDoesNotExist(t *testing.T, cluster ardb.StorageCluster, content []byte) {
 	hash := zerodisk.HashBytes(content).Bytes()
 	exists, err := ardb.Bool(
-		cluster.DoFor(int64(hash[0]), ardb.Command("EXISTS", hash)))
+		cluster.DoFor(int64(hash[0]), ardb.Command(command.Exists, hash)))
 	if err != nil {
 		debug.PrintStack()
 		t.Fatal(err)

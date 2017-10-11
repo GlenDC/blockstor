@@ -11,6 +11,7 @@ import (
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 	"github.com/zero-os/0-Disk/nbd/ardb/storage"
 	"github.com/zero-os/0-Disk/tlog"
 	"github.com/zero-os/0-Disk/tlog/schema"
@@ -977,7 +978,7 @@ func loadOrNewTlogMetadata(vdiskID string, cluster ardb.StorageCluster) (*tlogMe
 
 func deserializeTlogMetadata(key, vdiskID string, cluster ardb.StorageCluster) (*tlogMetadata, error) {
 	lastFlushedSequence, err := ardb.OptUint64(cluster.Do(
-		ardb.Command("HGET", key, tlogMetadataLastFlushedSequenceField)))
+		ardb.Command(command.HashGet, key, tlogMetadataLastFlushedSequenceField)))
 	if err != nil {
 		return nil, err
 	}
@@ -1028,7 +1029,7 @@ func (md *tlogMetadata) Flush() error {
 
 func (md *tlogMetadata) serialize(cluster ardb.StorageCluster) error {
 	_, err := cluster.Do(
-		ardb.Command("HSET",
+		ardb.Command(command.HashSet,
 			md.key, tlogMetadataLastFlushedSequenceField,
 			md.lastFlushedSequence))
 	return err
@@ -1172,7 +1173,10 @@ func copyMetadataSameConnection(sourceID, targetID string, cluster ardb.StorageC
 		sourceID, targetID)
 
 	sourceKey, targetKey := MetadataKey(sourceID), MetadataKey(targetID)
-	_, err := cluster.Do(ardb.Script(0, copyMetadataSameConnScript, sourceKey, targetKey))
+	_, err := cluster.Do(ardb.Script(
+		0, copyMetadataSameConnScript,
+		[]string{targetKey},
+		sourceKey, targetKey))
 	return err
 }
 
