@@ -191,13 +191,18 @@ func (cp *PrimarySlaveClusterPair) spawnConfigReloader(ctx context.Context, cs c
 
 	// spawn the config update goroutine
 	go func() {
+		var ok bool
 		for {
 			select {
 			case <-ctx.Done():
 				return
 
 			// handle clusterID reference updates
-			case vdiskNBDConfig = <-vdiskNBDRefCh:
+			case vdiskNBDConfig, ok = <-vdiskNBDRefCh:
+				if !ok {
+					return
+				}
+
 				_, err = primaryWatcher.SetClusterID(
 					ctx, cs, cp.vdiskID, vdiskNBDConfig.StorageClusterID)
 				if err != nil {
@@ -381,13 +386,18 @@ func (tsc *TemplateCluster) spawnConfigReloader(ctx context.Context, cs config.S
 
 	// spawn the config update goroutine
 	go func() {
+		var ok bool
 		for {
 			select {
 			case <-ctx.Done():
 				return
 
 			// handle clusterID reference updates
-			case vdiskNBDConfig = <-vdiskNBDRefCh:
+			case vdiskNBDConfig, ok = <-vdiskNBDRefCh:
+				if !ok {
+					return
+				}
+
 				clusterWasDefined := watcher.Defined()
 				clusterExists, err = watcher.SetClusterID(
 					ctx, cs, tsc.vdiskID, vdiskNBDConfig.TemplateStorageClusterID)

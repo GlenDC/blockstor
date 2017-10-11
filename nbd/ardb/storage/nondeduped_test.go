@@ -54,7 +54,7 @@ func TestNondedupedContent(t *testing.T) {
 
 	mr := redisstub.NewMemoryRedis()
 	defer mr.Close()
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestNondedupedContentForceFlush(t *testing.T) {
 
 	mr := redisstub.NewMemoryRedis()
 	defer mr.Close()
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestNonDedupedDeadlock(t *testing.T) {
 	pool := ardb.NewPool(nil)
 	defer pool.Close()
 
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), pool)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
 	if err != nil {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 
 	mrA := redisstub.NewMemoryRedis()
 	defer mrA.Close()
-	clusterA, err := ardb.NewCluster(mrA.StorageClusterConfig(), nil)
+	clusterA, err := ardb.NewUniCluster(mrA.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create cluster (a): %v", err)
 	}
@@ -137,7 +137,7 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 
 	mrB := redisstub.NewMemoryRedis()
 	defer mrB.Close()
-	clusterB, err := ardb.NewCluster(mrB.StorageClusterConfig(), nil)
+	clusterB, err := ardb.NewUniCluster(mrB.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create cluster (b): %v", err)
 	}
@@ -257,7 +257,7 @@ func TestNonDedupedStorageTemplateServerDown(t *testing.T) {
 
 	mrA := redisstub.NewMemoryRedis()
 	defer mrA.Close()
-	clusterA, err := ardb.NewCluster(mrA.StorageClusterConfig(), nil)
+	clusterA, err := ardb.NewUniCluster(mrA.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create cluster (a): %v", err)
 	}
@@ -269,7 +269,7 @@ func TestNonDedupedStorageTemplateServerDown(t *testing.T) {
 
 	mrB := redisstub.NewMemoryRedis()
 	defer mrB.Close()
-	clusterB, err := ardb.NewCluster(mrB.StorageClusterConfig(), nil)
+	clusterB, err := ardb.NewUniCluster(mrB.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create cluster (B): %v", err)
 	}

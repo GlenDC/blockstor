@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/garyburd/redigo/redis"
 	"github.com/zero-os/0-Disk/config"
 	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"

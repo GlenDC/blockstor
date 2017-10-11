@@ -25,7 +25,7 @@ func TestSemiDedupedContentBasic(t *testing.T) {
 	templateMR := redisstub.NewMemoryRedis()
 	defer templateMR.Close()
 
-	templateCluster, err := ardb.NewCluster(templateMR.StorageClusterConfig(), nil)
+	templateCluster, err := ardb.NewUniCluster(templateMR.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create template cluster: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestSemiDedupedContentBasic(t *testing.T) {
 	mr := redisstub.NewMemoryRedis()
 	defer mr.Close()
 
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}

@@ -36,7 +36,7 @@ func TestLBAWithEmptyARDBStorage(t *testing.T) {
 
 	mr := redisstub.NewMemoryRedis()
 	defer mr.Close()
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), nil)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
 	if err != nil {
 		t.Fatalf("couldn't create cluster: %v", err)
 	}

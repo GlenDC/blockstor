@@ -76,7 +76,7 @@ func newDedupedStorage(t *testing.T, vdiskID string, blockSize int64) (storage.B
 	mr := redisstub.NewMemoryRedis()
 	pool := ardb.NewPool(nil)
 
-	cluster, err := ardb.NewCluster(mr.StorageClusterConfig(), pool)
+	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
 	if err != nil {
 		mr.Close()
 		pool.Close()
