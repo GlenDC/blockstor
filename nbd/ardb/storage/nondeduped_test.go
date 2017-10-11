@@ -53,12 +53,8 @@ func TestNondedupedContent(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(false)
+	defer cluster.Close()
 
 	storage, err := NonDeduped(vdiskID, "", 8, cluster, nil)
 	if err != nil || storage == nil {
@@ -73,12 +69,8 @@ func TestNondedupedContentForceFlush(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(false)
+	defer cluster.Close()
 
 	storage, err := NonDeduped(vdiskID, "", 8, cluster, nil)
 	if err != nil || storage == nil {
@@ -96,16 +88,8 @@ func TestNonDedupedDeadlock(t *testing.T) {
 		blockCount = 512
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-
-	pool := ardb.NewPool(nil)
-	defer pool.Close()
-
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(true)
+	defer cluster.Close()
 
 	storage, err := NonDeduped(vdiskID, "", blockSize, cluster, nil)
 	if err != nil || storage == nil {
@@ -124,24 +108,16 @@ func TestGetNondedupedTemplateContent(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	mrA := redisstub.NewMemoryRedis()
-	defer mrA.Close()
-	clusterA, err := ardb.NewUniCluster(mrA.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster (a): %v", err)
-	}
+	clusterA := redisstub.NewUniCluster(false)
+	defer clusterA.Close()
 
 	storageA, err := NonDeduped(vdiskID, "", 8, clusterA, ardb.NopCluster{})
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
 
-	mrB := redisstub.NewMemoryRedis()
-	defer mrB.Close()
-	clusterB, err := ardb.NewUniCluster(mrB.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster (b): %v", err)
-	}
+	clusterB := redisstub.NewUniCluster(false)
+	defer clusterB.Close()
 
 	storageB, err := NonDeduped(vdiskID, "", 8, clusterB, clusterA)
 	if err != nil || storageB == nil {
@@ -256,24 +232,16 @@ func TestNonDedupedStorageTemplateServerDown(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	mrA := redisstub.NewMemoryRedis()
-	defer mrA.Close()
-	clusterA, err := ardb.NewUniCluster(mrA.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster (a): %v", err)
-	}
+	clusterA := redisstub.NewUniCluster(false)
+	defer clusterA.Close()
 
 	storageA, err := NonDeduped(vdiskID, "", 8, clusterA, nil)
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
 
-	mrB := redisstub.NewMemoryRedis()
-	defer mrB.Close()
-	clusterB, err := ardb.NewUniCluster(mrB.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster (B): %v", err)
-	}
+	clusterB := redisstub.NewUniCluster(false)
+	defer clusterB.Close()
 
 	storageB, err := NonDeduped(vdiskID, "", 8, clusterB, clusterA)
 	if err != nil || storageB == nil {
@@ -405,14 +373,9 @@ func TestListNonDedupedBlockIndices(t *testing.T) {
 		blockCount = 16
 	)
 
-	mrs := redisstub.NewMemoryRedisSlice(4)
-	defer mrs.Close()
-
-	clusterConfig := mrs.StorageClusterConfig()
-	cluster, err := ardb.NewCluster(clusterConfig, nil)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewCluster(4, false)
+	defer cluster.Close()
+	clusterConfig := cluster.StorageClusterConfig()
 
 	storage, err := NonDeduped(vdiskID, "", blockSize, cluster, nil)
 	if err != nil || storage == nil {

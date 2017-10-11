@@ -80,12 +80,8 @@ func TestDedupedContent(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(false)
+	defer cluster.Close()
 
 	storage, err := Deduped(vdiskID, 8, ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil || storage == nil {
@@ -100,12 +96,8 @@ func TestDedupedContentForceFlush(t *testing.T) {
 		vdiskID = "a"
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(false)
+	defer cluster.Close()
 
 	storage, err := Deduped(vdiskID, 8, ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil || storage == nil {
@@ -123,16 +115,8 @@ func TestDedupedDeadlock(t *testing.T) {
 		blockCount = 512
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-
-	pool := ardb.NewPool(nil)
-	defer pool.Close()
-
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-	if err != nil {
-		t.Fatalf("in-memory ardb cluster could not be created: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(true)
+	defer cluster.Close()
 
 	storage, err := Deduped(vdiskID, blockSize, ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil || storage == nil {
@@ -151,24 +135,18 @@ func TestGetPrimaryOrTemplateContent(t *testing.T) {
 		vdiskIDB = "b"
 	)
 
-	mrA := redisstub.NewMemoryRedis()
-	defer mrA.Close()
-	clusterA, err := ardb.NewUniCluster(mrA.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("in-memory ardb cluster (a) could not be created: %v", err)
-	}
+	clusterA := redisstub.NewUniCluster(false)
+	defer clusterA.Close()
+
 	storageA, err := Deduped(
 		vdiskIDA, 8, ardb.DefaultLBACacheLimit, clusterA, ardb.NopCluster{})
 	if err != nil || storageA == nil {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
 
-	mrB := redisstub.NewMemoryRedis()
-	defer mrB.Close()
-	clusterB, err := ardb.NewUniCluster(mrB.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("in-memory ardb cluster (b) could not be created: %v", err)
-	}
+	clusterB := redisstub.NewUniCluster(false)
+	defer clusterB.Close()
+
 	storageB, err := Deduped(
 		vdiskIDB, 8, ardb.DefaultLBACacheLimit, clusterB, clusterA)
 	if err != nil || storageB == nil {
@@ -339,12 +317,9 @@ func TestDedupedStorageTemplateServerDown(t *testing.T) {
 		err error
 	)
 
-	mrA := redisstub.NewMemoryRedis()
-	defer mrA.Close()
-	clusterA, err := ardb.NewUniCluster(mrA.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("in-memory ardb cluster (a) could not be created: %v", err)
-	}
+	clusterA := redisstub.NewUniCluster(false)
+	defer clusterA.Close()
+
 	storageA, err := Deduped(
 		vdiskIDA, blockSize,
 		ardb.DefaultLBACacheLimit, clusterA, nil)
@@ -352,12 +327,9 @@ func TestDedupedStorageTemplateServerDown(t *testing.T) {
 		t.Fatalf("storageA could not be created: %v", err)
 	}
 
-	mrB := redisstub.NewMemoryRedis()
-	defer mrB.Close()
-	clusterB, err := ardb.NewUniCluster(mrB.StorageServerConfig(), nil)
-	if err != nil {
-		t.Fatalf("in-memory ardb cluster (b) could not be created: %v", err)
-	}
+	clusterB := redisstub.NewUniCluster(false)
+	defer clusterB.Close()
+
 	storageB, err := Deduped(
 		vdiskIDB, blockSize,
 		ardb.DefaultLBACacheLimit, clusterB, clusterA)
@@ -498,11 +470,11 @@ func TestListDedupedBlockIndices(t *testing.T) {
 		blockIndexInterval = lba.NumberOfRecordsPerLBASector / 3
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	serverConfig := mr.StorageServerConfig()
-	clusterConfig := config.StorageClusterConfig{Servers: []config.StorageServerConfig{serverConfig}}
-	cluster, err := ardb.NewUniCluster(serverConfig, nil)
+	cluster := redisstub.NewUniCluster(false)
+	defer cluster.Close()
+	clusterConfig := config.StorageClusterConfig{
+		Servers: []config.StorageServerConfig{cluster.StorageServerConfig()},
+	}
 
 	storage, err := Deduped(
 		vdiskID, blockSize, ardb.DefaultLBACacheLimit, cluster, nil)
@@ -596,17 +568,10 @@ func TestListDedupedBlockIndices(t *testing.T) {
 func TestCopyDedupedDifferentServerCount(t *testing.T) {
 	assert := assert.New(t)
 
-	sourceMRSlice := redisstub.NewMemoryRedisSlice(4)
-	if !assert.NotNil(sourceMRSlice) {
-		return
-	}
-	defer sourceMRSlice.Close()
+	sourceCluster := redisstub.NewCluster(4, false)
+	defer sourceCluster.Close()
+	sourceStorageConfig := sourceCluster.StorageClusterConfig()
 
-	sourceStorageConfig := sourceMRSlice.StorageClusterConfig()
-	sourceCluster, err := ardb.NewCluster(sourceStorageConfig, nil)
-	if !assert.NoError(err) {
-		return
-	}
 	sourceSectorStorage := lba.ARDBSectorStorage("source", sourceCluster)
 
 	// create random source sectors
@@ -642,13 +607,9 @@ func TestCopyDedupedDifferentServerCount(t *testing.T) {
 }
 
 func testCopyDedupedDifferentServerCount(assert *assert.Assertions, indices []int64, sourceID, targetID string, sourceCluster *config.StorageClusterConfig, sourceSectorStorage lba.SectorStorage, targetServerCount int) {
-	targetMRSlice := redisstub.NewMemoryRedisSlice(targetServerCount)
-	if !assert.NotNil(targetMRSlice) {
-		return
-	}
-	defer targetMRSlice.Close()
-
-	targetStorageConfig := targetMRSlice.StorageClusterConfig()
+	targetCluster := redisstub.NewCluster(targetServerCount, false)
+	defer targetCluster.Close()
+	targetStorageConfig := targetCluster.StorageClusterConfig()
 
 	// copy the sectors
 	err := copyDedupedDifferentServerCount(sourceID, targetID, sourceCluster, &targetStorageConfig)
@@ -657,11 +618,6 @@ func testCopyDedupedDifferentServerCount(assert *assert.Assertions, indices []in
 	}
 
 	// now validate all sectors are correctly copied
-
-	targetCluster, err := ardb.NewCluster(targetStorageConfig, nil)
-	if !assert.NoError(err) {
-		return
-	}
 
 	targetSectorStorage := lba.ARDBSectorStorage(targetID, targetCluster)
 	for _, index := range indices {

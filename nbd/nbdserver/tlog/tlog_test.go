@@ -73,14 +73,8 @@ func TestTlogStorageWithDeduped(t *testing.T) {
 		blockCount = 8
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	pool := ardb.NewPool(nil)
-	defer pool.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(true)
+	defer cluster.Close()
 
 	storage, err := storage.Deduped(
 		vdiskID, blockSize,
@@ -102,14 +96,8 @@ func TestTlogStorageForceFlushWithDeduped(t *testing.T) {
 		blockCount = 8
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	pool := ardb.NewPool(nil)
-	defer pool.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(true)
+	defer cluster.Close()
 	storage, err := storage.Deduped(
 		vdiskID, blockSize,
 		ardb.DefaultLBACacheLimit, cluster, nil)
@@ -129,14 +117,8 @@ func TestTlogStorageWithNondeduped(t *testing.T) {
 		blockSize = 8
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	pool := ardb.NewPool(nil)
-	defer pool.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(true)
+	defer cluster.Close()
 
 	storage, err := storage.NonDeduped(
 		vdiskID, "", blockSize, cluster, nil)
@@ -156,14 +138,9 @@ func TestTlogStorageForceFlushWithNondeduped(t *testing.T) {
 		blockSize = 8
 	)
 
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	pool := ardb.NewPool(nil)
-	defer pool.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-	if err != nil {
-		t.Fatalf("couldn't create cluster: %v", err)
-	}
+	cluster := redisstub.NewUniCluster(true)
+	defer cluster.Close()
+
 	storage, err := storage.NonDeduped(
 		vdiskID, "", blockSize, cluster, nil)
 	if !assert.NoError(t, err) {
@@ -241,27 +218,13 @@ func newTlogTestServer(ctx context.Context, t *testing.T, vdiskID string) (strin
 }
 
 func TestTlogDedupedStorageReplay(t *testing.T) {
-	var mr *redisstub.MemoryRedis
-	var pool *ardb.Pool
-	defer func() {
-		if mr != nil {
-			mr.Close()
-			pool.Close()
-		}
-	}()
+	var cluster *redisstub.UniCluster
+	defer cluster.Close()
 
 	createDedupedStorage := func(vdiskID string, vdiskSize, blockSize int64) (storage.BlockStorage, error) {
-		if mr != nil {
-			mr.Close()
-			pool.Close()
-		}
+		cluster.Close()
+		cluster = redisstub.NewUniCluster(true)
 
-		mr = redisstub.NewMemoryRedis()
-		pool = ardb.NewPool(nil)
-		cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-		if err != nil {
-			t.Fatalf("couldn't create cluster: %v", err)
-		}
 		return storage.Deduped(
 			vdiskID, blockSize,
 			ardb.DefaultLBACacheLimit, cluster, nil)
@@ -271,27 +234,13 @@ func TestTlogDedupedStorageReplay(t *testing.T) {
 }
 
 func TestTlogNonDedupedStorageReplay(t *testing.T) {
-	var mr *redisstub.MemoryRedis
-	var pool *ardb.Pool
-	defer func() {
-		if mr != nil {
-			mr.Close()
-			pool.Close()
-		}
-	}()
+	var cluster *redisstub.UniCluster
+	defer cluster.Close()
 
 	createNonDedupedStorage := func(vdiskID string, vdiskSize, blockSize int64) (storage.BlockStorage, error) {
-		if mr != nil {
-			mr.Close()
-			pool.Close()
-		}
+		cluster.Close()
+		cluster = redisstub.NewUniCluster(true)
 
-		mr = redisstub.NewMemoryRedis()
-		pool = ardb.NewPool(nil)
-		cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-		if err != nil {
-			t.Fatalf("couldn't create cluster: %v", err)
-		}
 		return storage.NonDeduped(
 			vdiskID, "", blockSize, cluster, nil)
 	}

@@ -17,14 +17,8 @@ import (
 )
 
 func TestBackendSigtermHandler(t *testing.T) {
-	mr := redisstub.NewMemoryRedis()
-	defer mr.Close()
-	pool := ardb.NewPool(nil)
-	defer pool.Close()
-	cluster, err := ardb.NewUniCluster(mr.StorageServerConfig(), pool)
-	if err != nil {
-		t.Fatalf("couldn't create uni ardb cluster")
-	}
+	cluster := redisstub.NewUniCluster(true)
+	defer cluster.Close()
 
 	const (
 		vdiskID    = "a"
@@ -36,7 +30,7 @@ func TestBackendSigtermHandler(t *testing.T) {
 	var blockStorage storage.BlockStorage
 	ctx := context.Background()
 
-	blockStorage, err = storage.Deduped(
+	blockStorage, err := storage.Deduped(
 		vdiskID, blockSize,
 		ardb.DefaultLBACacheLimit, cluster, nil)
 	if err != nil {
