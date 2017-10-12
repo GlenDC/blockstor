@@ -135,11 +135,14 @@ func Int64ToBytesMapping(reply interface{}, err error) (map[int64][]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	if len(values)%2 != 0 {
+
+	n := len(values)
+	if n%2 != 0 {
 		return nil, errors.New("Int64ToBytesMapping expects even number of values result")
 	}
-	m := make(map[int64][]byte, len(values)/2)
-	for i := 0; i < len(values); i += 2 {
+
+	m := make(map[int64][]byte, n)
+	for i := 0; i < n; i += 2 {
 		key, err := redis.Int64(values[i], nil)
 		if err != nil {
 			return nil, err
