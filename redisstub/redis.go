@@ -5,14 +5,11 @@ package redisstub
 
 import (
 	"errors"
-	"io/ioutil"
-	"os"
+
+	"github.com/zero-os/0-Disk/redisstub/ledisdb"
 
 	"github.com/garyburd/redigo/redis"
-	lediscfg "github.com/siddontang/ledisdb/config"
-	"github.com/siddontang/ledisdb/server"
 	"github.com/zero-os/0-Disk/config"
-	"github.com/zero-os/0-Disk/log"
 )
 
 // NewMemoryRedis creates a new in-memory redis stub.
@@ -22,42 +19,24 @@ import (
 // https://github.com/siddontang/ledisdb/blob/master/doc/commands.md
 // WARNING: should be used for testing/dev purposes only!
 func NewMemoryRedis() *MemoryRedis {
-	cfg := lediscfg.NewConfigDefault()
-	cfg.DBName = "memory"
-	cfg.DataDir, _ = ioutil.TempDir("", "redisstub")
-	// assigning the empty string to Addr,
-	// such that it auto-assigns a free local port
-	cfg.Addr = ""
-
-	app, err := server.NewApp(cfg)
-	if err != nil {
-		log.Fatalf("couldn't create embedded ledisdb: %s", err.Error())
+	return &MemoryRedis{
+		server: ledisdb.NewServer(),
 	}
-
-	mr := &MemoryRedis{
-		app:     app,
-		addr:    app.Address(),
-		datadir: cfg.DataDir,
-	}
-	go mr.listen()
-	return mr
 }
 
 // MemoryRedis is an in memory redis connection implementation
 type MemoryRedis struct {
-	app     *server.App
-	addr    string
-	datadir string
+	server *ledisdb.Server
 }
 
 // Dial to the embedded Go Redis Server,
 // and return the established connection if possible.
-func (mr *MemoryRedis) Dial(connectionString string, database int) (redis.Conn, error) {
+func (mr *MemoryRedis) Dial(_ string, _ int) (redis.Conn, error) {
 	if mr == nil {
 		return nil, errors.New("no in-memory redis is available")
 	}
 
-	return redis.Dial("tcp", mr.addr, redis.DialDatabase(database))
+	return redis.Dial("tcp", mr.server.Address())
 }
 
 // Close the embedded Go Redis Server,
@@ -66,9 +45,7 @@ func (mr *MemoryRedis) Close() {
 	if mr == nil {
 		return
 	}
-
-	os.Remove(mr.datadir)
-	mr.app.Close()
+	mr.server.Close()
 }
 
 // address returns the tcp (local) address of this MemoryRedis server
@@ -77,20 +54,13 @@ func (mr *MemoryRedis) address() string {
 		return ""
 	}
 
-	return mr.addr
+	return mr.server.Address()
 }
 
 // StorageServerConfig returns a new StorageServerConfig,
 // usable to connect to this in-memory redis-compatible ledisdb.
 func (mr *MemoryRedis) StorageServerConfig() config.StorageServerConfig {
 	return config.StorageServerConfig{Address: mr.address()}
-}
-
-// Listen to any incoming TCP requests,
-// and process them in the embedded Go Redis Server.
-func (mr *MemoryRedis) listen() {
-	log.Info("embedded LedisDB Server ready and listening at ", mr.addr)
-	mr.app.Run()
 }
 
 // NewMemoryRedisSlice creates a slice of in-memory redis stubs.
