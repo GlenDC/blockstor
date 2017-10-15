@@ -83,14 +83,13 @@ func (f *backendFactory) NewBackend(ctx context.Context, ec *nbd.ExportConfig) (
 
 	var resourceCloser closers
 
-	// create primary-slave cluster pair
-	// NOTE: internal slave cluster may be nil, this is OK
-	primarySlaveClusterPair, err := storage.NewPrimarySlaveClusterPair(ctx, vdiskID, f.configSource)
+	// create primary cluster
+	primaryCluster, err := storage.NewPrimaryCluster(ctx, vdiskID, f.configSource)
 	if err != nil {
 		log.Error(err)
 		return
 	}
-	resourceCloser = append(resourceCloser, primarySlaveClusterPair)
+	resourceCloser = append(resourceCloser)
 
 	// create template cluster if supported by vdisk
 	// NOTE: internal template cluster may be nil, this is OK
@@ -112,12 +111,9 @@ func (f *backendFactory) NewBackend(ctx context.Context, ec *nbd.ExportConfig) (
 			VdiskType:       staticConfig.Type,
 			BlockSize:       blockSize,
 			LBACacheLimit:   f.lbaCacheLimit,
-		}, primarySlaveClusterPair, templateCluster)
+		}, primaryCluster, templateCluster)
 	if err != nil {
-		primarySlaveClusterPair.Close()
-		if templateCluster != nil {
-			templateCluster.Close()
-		}
+		resourceCloser.Close()
 		log.Error(err)
 		return
 	}
@@ -139,7 +135,7 @@ func (f *backendFactory) NewBackend(ctx context.Context, ec *nbd.ExportConfig) (
 			log.Debugf("creating tlogStorage for backend %v (%v)", vdiskID, staticConfig.Type)
 			tlogBlockStorage, err := tlog.Storage(ctx,
 				vdiskID,
-				f.configSource, blockSize, blockStorage, primarySlaveClusterPair, nil)
+				f.configSource, blockSize, blockStorage, primaryCluster, nil)
 			if err != nil {
 				blockStorage.Close()
 				resourceCloser.Close()

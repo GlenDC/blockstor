@@ -16,33 +16,30 @@ import (
 // add server states (and stub handling)
 // https://github.com/zero-os/0-Disk/issues/455
 
-// NewPrimarySlaveClusterPair creates a new PrimarySlaveClusterPair.
-// See `PrimarySlaveClusterPair` for more information.
-func NewPrimarySlaveClusterPair(ctx context.Context, vdiskID string, cs config.Source) (*PrimarySlaveClusterPair, error) {
-	primarySlaveClusterPair := &PrimarySlaveClusterPair{
+// NewPrimaryCluster creates a new PrimaryCluster.
+// See `PrimaryCluster` for more information.
+func NewPrimaryCluster(ctx context.Context, vdiskID string, cs config.Source) (*PrimaryCluster, error) {
+	primaryCluster := &PrimaryCluster{
 		vdiskID: vdiskID,
 		pool:    ardb.NewPool(nil),
 	}
-	err := primarySlaveClusterPair.spawnConfigReloader(ctx, cs)
+	err := primaryCluster.spawnConfigReloader(ctx, cs)
 	if err != nil {
-		primarySlaveClusterPair.Close()
+		primaryCluster.Close()
 		return nil, err
 	}
 
-	return primarySlaveClusterPair, nil
+	return primaryCluster, nil
 }
 
-// PrimarySlaveClusterPair defines a vdisk's primary-slave cluster pair.
-// It supports hot reloading of the configuration, self-healing of the clusters,
-// and the option for the slave cluster to not be defined at all.
-type PrimarySlaveClusterPair struct {
+// PrimaryCluster defines a vdisk's primary cluster.
+// It supports hot reloading of the configuration
+// and state handling of the individual servers of a cluster.
+type PrimaryCluster struct {
 	vdiskID string
 
-	primServers     []config.StorageServerConfig
-	primServerCount int64
-
-	slaveServers     []config.StorageServerConfig
-	slaveServerCount int64
+	servers     []config.StorageServerConfig
+	serverCount int64
 
 	pool   *ardb.Pool
 	cancel context.CancelFunc
@@ -51,44 +48,39 @@ type PrimarySlaveClusterPair struct {
 }
 
 // Do implements StorageCluster.Do
-func (cp *PrimarySlaveClusterPair) Do(action ardb.StorageAction) (reply interface{}, err error) {
-	cp.mux.RLock()
-	defer cp.mux.RUnlock()
+func (pc *PrimaryCluster) Do(action ardb.StorageAction) (reply interface{}, err error) {
+	pc.mux.RLock()
+	defer pc.mux.RUnlock()
 
 	// compute server index of first available server
-	serverIndex, err := ardb.FindFirstServerIndex(cp.primServerCount, cp.serverIsOnline)
+	serverIndex, err := ardb.FindFirstServerIndex(pc.serverCount, pc.serverIsOnline)
 	if err != nil {
 		return nil, err
 	}
 
-	return cp.doAt(serverIndex, action)
+	return pc.doAt(serverIndex, action)
 }
 
 // DoFor implements StorageCluster.DoFor
-func (cp *PrimarySlaveClusterPair) DoFor(objectIndex int64, action ardb.StorageAction) (reply interface{}, err error) {
-	cp.mux.RLock()
-	defer cp.mux.RUnlock()
+func (pc *PrimaryCluster) DoFor(objectIndex int64, action ardb.StorageAction) (reply interface{}, err error) {
+	pc.mux.RLock()
+	defer pc.mux.RUnlock()
 
 	// compute server index for the server which maps to the given object index
-	serverIndex, err := ardb.ComputeServerIndex(cp.primServerCount, objectIndex, cp.serverIsOnline)
+	serverIndex, err := ardb.ComputeServerIndex(pc.serverCount, objectIndex, pc.serverIsOnline)
 	if err != nil {
 		return nil, err
 	}
 
-	return cp.doAt(serverIndex, action)
+	return pc.doAt(serverIndex, action)
 }
 
-// execute an exuction at a given server
-func (cp *PrimarySlaveClusterPair) doAt(serverIndex int64, action ardb.StorageAction) (reply interface{}, err error) {
+// execute an exuction at a given primary server
+func (pc *PrimaryCluster) doAt(serverIndex int64, action ardb.StorageAction) (reply interface{}, err error) {
 	// establish a connection for that serverIndex
-	cfg := cp.primServers[serverIndex]
-	serverType := log.ARDBPrimaryServer
-	if cfg.State != config.StorageServerStateOnline {
-		cfg = cp.slaveServers[serverIndex]
-		serverType = log.ARDBSlaveServer
-	}
+	cfg := pc.servers[serverIndex]
 
-	conn, err := cp.pool.Dial(cfg)
+	conn, err := pc.pool.Dial(cfg)
 	if err == nil {
 		defer conn.Close()
 		reply, err = action.Do(conn)
@@ -110,35 +102,24 @@ func (cp *PrimarySlaveClusterPair) doAt(serverIndex int64, action ardb.StorageAc
 		log.ARDBServerTimeoutBody{
 			Address:  cfg.Address,
 			Database: cfg.Database,
-			Type:     serverType,
-			VdiskID:  cp.vdiskID,
+			Type:     log.ARDBPrimaryServer,
+			VdiskID:  pc.vdiskID,
 		},
 	)
 	return nil, err
 }
 
 // Close any open resources
-func (cp *PrimarySlaveClusterPair) Close() error {
-	cp.cancel()
-	cp.pool.Close()
+func (pc *PrimaryCluster) Close() error {
+	pc.cancel()
+	pc.pool.Close()
 	return nil
 }
 
 // serverOperational returns true if
 // a server on the given index is online.
-func (cp *PrimarySlaveClusterPair) serverIsOnline(index int64) bool {
-	server := cp.primServers[index]
-	if server.State == config.StorageServerStateOnline {
-		return true
-	}
-	if server.State != config.StorageServerStateOffline || cp.slaveServerCount == 0 {
-		// only use slave cluster if it's available and if the
-		// if server from primary cluster is /only/ temporarly offline
-		return false
-	}
-
-	server = cp.slaveServers[index]
-	return server.State == config.StorageServerStateOnline
+func (pc *PrimaryCluster) serverIsOnline(index int64) bool {
+	return pc.servers[index].State == config.StorageServerStateOnline
 }
 
 // spawnConfigReloader starts all needed config watchers,
@@ -146,24 +127,24 @@ func (cp *PrimarySlaveClusterPair) serverIsOnline(index int64) bool {
 // An error is returned in case the initial watch-creation and config-update failed.
 // All future errors will be logged (and optionally broadcasted),
 // without stopping this goroutine.
-func (cp *PrimarySlaveClusterPair) spawnConfigReloader(ctx context.Context, cs config.Source) error {
+func (pc *PrimaryCluster) spawnConfigReloader(ctx context.Context, cs config.Source) error {
 	// create the context and cancelFunc used for the master watcher.
-	ctx, cp.cancel = context.WithCancel(ctx)
+	ctx, pc.cancel = context.WithCancel(ctx)
 
 	// create the master watcher if possible
-	vdiskNBDRefCh, err := config.WatchVdiskNBDConfig(ctx, cs, cp.vdiskID)
+	vdiskNBDRefCh, err := config.WatchVdiskNBDConfig(ctx, cs, pc.vdiskID)
 	if err != nil {
 		return err
 	}
 	vdiskNBDConfig := <-vdiskNBDRefCh
 
-	var primaryClusterCfg, slaveClusterCfg config.StorageClusterConfig
+	var primaryClusterCfg config.StorageClusterConfig
 
 	// create the primary storage cluster watcher,
 	// and execute the initial config update iff
 	// an internal watcher is created.
-	var primaryWatcher, slaveWatcher storageClusterWatcher
-	clusterExists, err := primaryWatcher.SetClusterID(ctx, cs, cp.vdiskID, vdiskNBDConfig.StorageClusterID)
+	var primaryWatcher storageClusterWatcher
+	clusterExists, err := primaryWatcher.SetClusterID(ctx, cs, pc.vdiskID, vdiskNBDConfig.StorageClusterID)
 	if err != nil {
 		return err
 	}
@@ -171,22 +152,9 @@ func (cp *PrimarySlaveClusterPair) spawnConfigReloader(ctx context.Context, cs c
 		panic("primary cluster should exist on a non-error path")
 	}
 	primaryClusterCfg = <-primaryWatcher.Receive()
-	err = cp.updatePrimaryStorageConfig(primaryClusterCfg)
+	err = pc.updatePrimaryStorageConfig(primaryClusterCfg)
 	if err != nil {
 		return err
-	}
-
-	clusterExists, err = slaveWatcher.SetClusterID(
-		ctx, cs, cp.vdiskID, vdiskNBDConfig.SlaveStorageClusterID)
-	if err != nil {
-		return err
-	}
-	if clusterExists {
-		slaveClusterCfg = <-slaveWatcher.Receive()
-		err = cp.updateSlaveStorageConfig(slaveClusterCfg)
-		if err != nil {
-			return err
-		}
 	}
 
 	// spawn the config update goroutine
@@ -204,37 +172,16 @@ func (cp *PrimarySlaveClusterPair) spawnConfigReloader(ctx context.Context, cs c
 				}
 
 				_, err = primaryWatcher.SetClusterID(
-					ctx, cs, cp.vdiskID, vdiskNBDConfig.StorageClusterID)
+					ctx, cs, pc.vdiskID, vdiskNBDConfig.StorageClusterID)
 				if err != nil {
 					log.Errorf("failed to watch new primary cluster config: %v", err)
 				}
 
-				slaveClusterWasDefined := slaveWatcher.Defined()
-				clusterExists, err = slaveWatcher.SetClusterID(
-					ctx, cs, cp.vdiskID, vdiskNBDConfig.SlaveStorageClusterID)
-				if err != nil {
-					log.Errorf("failed to watch new slave cluster config: %v", err)
-					continue
-				}
-				if slaveClusterWasDefined && !clusterExists {
-					// no cluster exists any longer, we need to delete the old state
-					cp.mux.Lock()
-					cp.slaveServers, cp.slaveServerCount = nil, 0
-					cp.mux.Unlock()
-				}
-
 			// handle primary cluster storage updates
 			case primaryClusterCfg = <-primaryWatcher.Receive():
-				err = cp.updatePrimaryStorageConfig(primaryClusterCfg)
+				err = pc.updatePrimaryStorageConfig(primaryClusterCfg)
 				if err != nil {
 					log.Errorf("failed to update new primary cluster config: %v", err)
-				}
-
-			// handle slave cluster storage updates
-			case slaveClusterCfg = <-slaveWatcher.Receive():
-				err = cp.updateSlaveStorageConfig(slaveClusterCfg)
-				if err != nil {
-					log.Errorf("failed to update new slave cluster config: %v", err)
 				}
 			}
 		}
@@ -246,21 +193,11 @@ func (cp *PrimarySlaveClusterPair) spawnConfigReloader(ctx context.Context, cs c
 
 // updatePrimaryStorageConfig overwrites
 // the currently used primary storage config,
-func (cp *PrimarySlaveClusterPair) updatePrimaryStorageConfig(cfg config.StorageClusterConfig) error {
-	cp.mux.Lock()
-	cp.primServers = cfg.Servers
-	cp.primServerCount = int64(len(cfg.Servers))
-	cp.mux.Unlock()
-	return nil
-}
-
-// updateSlaveStorageConfig overwrites
-// the currently used slave storage config,
-func (cp *PrimarySlaveClusterPair) updateSlaveStorageConfig(cfg config.StorageClusterConfig) error {
-	cp.mux.Lock()
-	cp.slaveServers = cfg.Servers
-	cp.slaveServerCount = int64(len(cfg.Servers))
-	cp.mux.Unlock()
+func (pc *PrimaryCluster) updatePrimaryStorageConfig(cfg config.StorageClusterConfig) error {
+	pc.mux.Lock()
+	pc.servers = cfg.Servers
+	pc.serverCount = int64(len(cfg.Servers))
+	pc.mux.Unlock()
 	return nil
 }
 

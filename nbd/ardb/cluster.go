@@ -138,120 +138,6 @@ func (cluster *Cluster) serverIsOnline(index int64) bool {
 	return cluster.servers[index].State == config.StorageServerStateOnline
 }
 
-// NewClusterPair creates a new (ARDB) cluster pair.
-func NewClusterPair(first, second config.StorageClusterConfig, dialer ConnectionDialer) (*ClusterPair, error) {
-	err := first.Validate()
-	if err != nil {
-		return nil, err
-	}
-	err = second.Validate()
-	if err != nil {
-		return nil, err
-	}
-
-	// even though the first and second cluster on their own are proven to be valid,
-	// we still need to ensure that their server count is equal
-	fstServerCount := int64(len(first.Servers))
-	sndServerCount := int64(len(second.Servers))
-	if fstServerCount != sndServerCount {
-		return nil, ErrIncompatibleServers
-	}
-
-	// default the dialer to a non-pooled redigo dialer
-	if dialer == nil {
-		dialer = stdConnDialer
-	}
-
-	// all fine, return the cluster pair,
-	// ready for usage
-	return &ClusterPair{
-		fstServers:     first.Servers,
-		fstServerCount: fstServerCount,
-		sndServers:     second.Servers,
-		sndServerCount: sndServerCount,
-		dialer:         dialer,
-	}, nil
-}
-
-// ClusterPair defines a pair of clusters,
-// where the secondary cluster is used as a backup for the first cluster.
-type ClusterPair struct {
-	fstServers     []config.StorageServerConfig
-	fstServerCount int64
-
-	sndServers     []config.StorageServerConfig
-	sndServerCount int64
-
-	dialer ConnectionDialer
-}
-
-// Do implements StorageCluster.Do
-func (pair *ClusterPair) Do(action StorageAction) (interface{}, error) {
-	// compute server index of first available server
-	serverIndex, err := FindFirstServerIndex(pair.fstServerCount, pair.serverIsOnline)
-	if err != nil {
-		return nil, err
-	}
-
-	// get server for the computed index
-	server := pair.fstServers[serverIndex]
-	if server.State != config.StorageServerStateOnline {
-		server = pair.sndServers[serverIndex]
-	}
-
-	// establish a connection for that serverIndex
-	conn, err := pair.dialer.Dial(server)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	// apply the given action to the established connection
-	return action.Do(conn)
-}
-
-// DoFor implements StorageCluster.DoFor
-func (pair *ClusterPair) DoFor(objectIndex int64, action StorageAction) (interface{}, error) {
-	// compute server index for the server which maps to this objectIndex
-	serverIndex, err := ComputeServerIndex(pair.fstServerCount, objectIndex, pair.serverIsOnline)
-	if err != nil {
-		return nil, err
-	}
-
-	// get server for the computed index
-	server := pair.fstServers[serverIndex]
-	if server.State != config.StorageServerStateOnline {
-		server = pair.sndServers[serverIndex]
-	}
-
-	// establish a connection for that serverIndex
-	conn, err := pair.dialer.Dial(server)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	// apply the given action to the established connection
-	return action.Do(conn)
-}
-
-// serverOperational returns true if
-// a server on the given index is online.
-func (pair *ClusterPair) serverIsOnline(index int64) bool {
-	server := pair.fstServers[index]
-	if server.State == config.StorageServerStateOnline {
-		return true
-	}
-	if server.State != config.StorageServerStateOffline {
-		// only use second cluster
-		// if server from first cluster is /only/ temporarly offline
-		return false
-	}
-
-	server = pair.sndServers[index]
-	return server.State == config.StorageServerStateOnline
-}
-
 // NopCluster is a Cluster which can be used for
 // scenarios where you want to specify a StorageCluster,
 // which only ever returns NoServersAvailable error.
@@ -354,7 +240,6 @@ var (
 var (
 	_ StorageCluster = (*UniCluster)(nil)
 	_ StorageCluster = (*Cluster)(nil)
-	_ StorageCluster = (*ClusterPair)(nil)
 	_ StorageCluster = NopCluster{}
 )
 
