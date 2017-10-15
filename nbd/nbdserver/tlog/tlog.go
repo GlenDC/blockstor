@@ -1109,28 +1109,20 @@ func CopyMetadata(sourceID, targetID string, sourceClusterCfg, targetClusterCfg 
 
 	// get first available storage server
 
-	sourceServerIndex, err := ardb.FindFirstServerIndex(
-		int64(len(sourceClusterCfg.Servers)), func(serverIndex int64) bool {
-			return sourceClusterCfg.Servers[serverIndex].State == config.StorageServerStateOnline
-		})
+	metaSourceCfg, err := ardb.FindFirstAvailableServerConfig(*sourceClusterCfg)
 	if err != nil {
 		return err
 	}
-	metaSourceCfg := sourceClusterCfg.Servers[sourceServerIndex]
 
 	sourceCluster, err := ardb.NewUniCluster(metaSourceCfg, nil)
 	if err != nil {
 		return err
 	}
 
-	targetServerIndex, err := ardb.FindFirstServerIndex(
-		int64(len(targetClusterCfg.Servers)), func(serverIndex int64) bool {
-			return targetClusterCfg.Servers[serverIndex].State == config.StorageServerStateOnline
-		})
+	metaTargetCfg, err := ardb.FindFirstAvailableServerConfig(*targetClusterCfg)
 	if err != nil {
 		return err
 	}
-	metaTargetCfg := targetClusterCfg.Servers[targetServerIndex]
 
 	if metaSourceCfg.Equal(&metaTargetCfg) {
 		conn, err := ardb.Dial(metaSourceCfg)

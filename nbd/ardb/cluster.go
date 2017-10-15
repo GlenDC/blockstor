@@ -75,6 +75,17 @@ func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Clus
 		return nil, err
 	}
 
+	var clusterOperational bool
+	for _, server := range cfg.Servers {
+		if server.State == config.StorageServerStateOnline {
+			clusterOperational = true
+			break
+		}
+	}
+	if !clusterOperational {
+		return nil, ErrNoServersAvailable
+	}
+
 	if dialer == nil {
 		dialer = stdConnDialer
 	}
@@ -97,7 +108,7 @@ type Cluster struct {
 // Do implements StorageCluster.Do
 func (cluster *Cluster) Do(action StorageAction) (interface{}, error) {
 	// compute server index of first available server
-	serverIndex, err := FindFirstServerIndex(cluster.serverCount, cluster.serverIsOnline)
+	serverIndex, err := FindFirstServerIndex(cluster.serverCount, cluster.serverOperational)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +127,7 @@ func (cluster *Cluster) Do(action StorageAction) (interface{}, error) {
 // DoFor implements StorageCluster.DoFor
 func (cluster *Cluster) DoFor(objectIndex int64, action StorageAction) (interface{}, error) {
 	// compute server index which maps to the given object index
-	serverIndex, err := ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverIsOnline)
+	serverIndex, err := ComputeServerIndex(cluster.serverCount, objectIndex, cluster.serverOperational)
 	if err != nil {
 		return nil, err
 	}
@@ -133,9 +144,18 @@ func (cluster *Cluster) DoFor(objectIndex int64, action StorageAction) (interfac
 }
 
 // serverOperational returns true if
-// the server on the given index is online.
-func (cluster *Cluster) serverIsOnline(index int64) bool {
-	return cluster.servers[index].State == config.StorageServerStateOnline
+// the server on the given index is operational.
+func (cluster *Cluster) serverOperational(index int64) (bool, error) {
+	switch cluster.servers[index].State {
+	case config.StorageServerStateOnline:
+		return true, nil
+
+	case config.StorageServerStateRIP:
+		return false, nil
+
+	default:
+		return false, ErrServerStateNotSupported
+	}
 }
 
 // NopCluster is a Cluster which can be used for
@@ -156,7 +176,8 @@ func (cluster NopCluster) DoFor(objectIndex int64, action StorageAction) (reply 
 // ServerIndexPredicate is a predicate
 // used to determine if a given serverIndex
 // for a callee-owned cluster object is valid.
-type ServerIndexPredicate func(serverIndex int64) bool
+// An error can be returned to quit early in a search.
+type ServerIndexPredicate func(serverIndex int64) (bool, error)
 
 // FindFirstAvailableServerConfig iterates through all storage servers
 // until it finds a server which state indicates its available.
@@ -175,10 +196,12 @@ func FindFirstAvailableServerConfig(cfg config.StorageClusterConfig) (serverCfg 
 // FindFirstServerIndex iterates through all servers
 // until the predicate for a server index returns true.
 // If no index evaluates to true, ErrNoServersAvailable is returned.
-func FindFirstServerIndex(serverCount int64, predicate ServerIndexPredicate) (int64, error) {
-	for serverIndex := int64(0); serverIndex < serverCount; serverIndex++ {
-		if predicate(serverIndex) {
-			return serverIndex, nil
+func FindFirstServerIndex(serverCount int64, predicate ServerIndexPredicate) (serverIndex int64, err error) {
+	var ok bool
+	for ; serverIndex < serverCount; serverIndex++ {
+		ok, err = predicate(serverIndex)
+		if ok || err != nil {
+			return
 		}
 	}
 
@@ -188,25 +211,15 @@ func FindFirstServerIndex(serverCount int64, predicate ServerIndexPredicate) (in
 // ComputeServerIndex computes a server index for a given objectIndex,
 // using a shared static algorithm with the serverCount as input and
 // a given predicate to define if a computed index is fine.
-func ComputeServerIndex(serverCount, objectIndex int64, predicate ServerIndexPredicate) (int64, error) {
+// NOTE: the callee has to ensure that at least /one/ server is operational!
+func ComputeServerIndex(serverCount, objectIndex int64, predicate ServerIndexPredicate) (serverIndex int64, err error) {
 	// first try the modulo sharding,
 	// which will work for all default online shards
 	// and thus keep it as cheap as possible
-	serverIndex := objectIndex % serverCount
-	if predicate(serverIndex) {
-		return serverIndex, nil
-	}
-
-	// ensure that we have servers which are actually online
-	var operational bool
-	for i := int64(0); i < serverCount; i++ {
-		if predicate(i) {
-			operational = true
-			break
-		}
-	}
-	if !operational {
-		return -1, ErrNoServersAvailable
+	serverIndex = objectIndex % serverCount
+	ok, err := predicate(serverIndex)
+	if ok || err != nil {
+		return
 	}
 
 	// keep trying until we find an online server
@@ -223,8 +236,9 @@ func ComputeServerIndex(serverCount, objectIndex int64, predicate ServerIndexPre
 			key = key*2862933555777941757 + 1
 			j = int64(float64(serverIndex+1) * (float64(int64(1)<<31) / float64((key>>33)+1)))
 		}
-		if predicate(serverIndex) {
-			return serverIndex, nil
+		ok, err = predicate(serverIndex)
+		if ok || err != nil {
+			return
 		}
 
 		objectIndex++
@@ -261,8 +275,8 @@ var (
 	// when the input given for a function is invalid.
 	ErrInvalidInput = errors.New("invalid input given")
 
-	// ErrIncompatibleServers is an error returned
-	// in case 2 clusters used for a ClusterPair are not
-	// compatible with each other (e.g. due to servers not being equal).
-	ErrIncompatibleServers = errors.New("incompatible servers (server count equal?)")
+	// ErrServerStateNotSupported is an error ereturned
+	// when a server is updated to a state,
+	// while the cluster (type) does not support that kind of state.
+	ErrServerStateNotSupported = errors.New("server state is not supported")
 )

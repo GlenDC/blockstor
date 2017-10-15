@@ -50,42 +50,42 @@ type PrimaryCluster struct {
 // Do implements StorageCluster.Do
 func (pc *PrimaryCluster) Do(action ardb.StorageAction) (reply interface{}, err error) {
 	pc.mux.RLock()
-	defer pc.mux.RUnlock()
-
 	// compute server index of first available server
-	serverIndex, err := ardb.FindFirstServerIndex(pc.serverCount, pc.serverIsOnline)
+	serverIndex, err := ardb.FindFirstServerIndex(pc.serverCount, pc.serverOperational)
 	if err != nil {
+		pc.mux.RUnlock()
 		return nil, err
 	}
+	cfg := pc.servers[serverIndex]
+	pc.mux.RUnlock()
 
-	return pc.doAt(serverIndex, action)
+	return pc.doAt(serverIndex, cfg, action)
 }
 
 // DoFor implements StorageCluster.DoFor
 func (pc *PrimaryCluster) DoFor(objectIndex int64, action ardb.StorageAction) (reply interface{}, err error) {
 	pc.mux.RLock()
-	defer pc.mux.RUnlock()
-
 	// compute server index for the server which maps to the given object index
-	serverIndex, err := ardb.ComputeServerIndex(pc.serverCount, objectIndex, pc.serverIsOnline)
+	serverIndex, err := ardb.ComputeServerIndex(pc.serverCount, objectIndex, pc.serverOperational)
 	if err != nil {
+		pc.mux.RUnlock()
 		return nil, err
 	}
+	cfg := pc.servers[serverIndex]
+	pc.mux.RUnlock()
 
-	return pc.doAt(serverIndex, action)
+	return pc.doAt(serverIndex, cfg, action)
 }
 
 // execute an exuction at a given primary server
-func (pc *PrimaryCluster) doAt(serverIndex int64, action ardb.StorageAction) (reply interface{}, err error) {
-	// establish a connection for that serverIndex
-	cfg := pc.servers[serverIndex]
-
+func (pc *PrimaryCluster) doAt(serverIndex int64, cfg config.StorageServerConfig, action ardb.StorageAction) (reply interface{}, err error) {
+	// establish a connection for the given config
 	conn, err := pc.pool.Dial(cfg)
 	if err == nil {
 		defer conn.Close()
 		reply, err = action.Do(conn)
-		if err == nil {
-			return reply, nil
+		if err == nil || err == ardb.ErrNil {
+			return
 		}
 	}
 
@@ -106,6 +106,13 @@ func (pc *PrimaryCluster) doAt(serverIndex int64, action ardb.StorageAction) (re
 			VdiskID:  pc.vdiskID,
 		},
 	)
+
+	// mark server as offline, so that next time this server will trigger an error,
+	// such that we don't broadcast all the time
+	if err := pc.updateServerState(serverIndex, config.StorageServerStateOffline); err != nil {
+		log.Errorf("couldn't update primary server (%d) state to offline: %v", serverIndex, err)
+	}
+
 	return nil, err
 }
 
@@ -117,9 +124,57 @@ func (pc *PrimaryCluster) Close() error {
 }
 
 // serverOperational returns true if
-// a server on the given index is online.
-func (pc *PrimaryCluster) serverIsOnline(index int64) bool {
-	return pc.servers[index].State == config.StorageServerStateOnline
+// a server on the given index is available for operation.
+func (pc *PrimaryCluster) serverOperational(index int64) (bool, error) {
+	switch pc.servers[index].State {
+	case config.StorageServerStateOnline:
+		return true, nil
+
+	case config.StorageServerStateOffline:
+		return false, ardb.ErrServerUnavailable
+
+	case config.StorageServerStateRIP:
+		return false, nil
+
+	default:
+		return false, ardb.ErrServerStateNotSupported
+	}
+}
+
+func (pc *PrimaryCluster) updateServerState(index int64, state config.StorageServerState) error {
+	pc.mux.Lock()
+	defer pc.mux.Unlock()
+
+	err := pc.handleServerStateUpdate(index, state)
+	if err != nil {
+		return err
+	}
+
+	pc.servers[index].State = state
+	return nil
+}
+
+func (pc *PrimaryCluster) handleServerStateUpdate(index int64, state config.StorageServerState) error {
+	if pc.servers[index].State == state {
+		return nil // nothing to do
+	}
+
+	// [TODO]
+	// Handle Online => Nothing to do ?!
+	// Handle Offline => Notify Tlog server to not sync with TLog
+	// Handle Restore => Copy data from slave to primary, Notify TLog server it can re-use that slave
+	// Handle Respread => Copy data from slave to primary, Mark server afterwards as RIP
+	// Handle RIP => nothing to do (should tlog be warned of this though?!)
+	//
+	// [TODO] should we also check the state flow? e.g. does `RIP => Online` make sense?!
+
+	switch state {
+	case config.StorageServerStateOnline, config.StorageServerStateOffline, config.StorageServerStateRIP:
+		return nil // supported
+
+	default:
+		return ardb.ErrServerStateNotSupported
+	}
 }
 
 // spawnConfigReloader starts all needed config watchers,
@@ -232,36 +287,25 @@ type TemplateCluster struct {
 }
 
 // Do implements StorageCluster.Do
-func (tsc *TemplateCluster) Do(action ardb.StorageAction) (reply interface{}, err error) {
+func (tsc *TemplateCluster) Do(_ ardb.StorageAction) (reply interface{}, err error) {
 	return nil, ErrMethodNotSupported
 }
 
 // DoFor implements StorageCluster.DoFor
 func (tsc *TemplateCluster) DoFor(objectIndex int64, action ardb.StorageAction) (reply interface{}, err error) {
 	tsc.mux.RLock()
-	defer tsc.mux.RUnlock()
-
-	// ensure the template cluster is actually defined,
-	// as it is created even when no clusterID is referenced,
-	// just in case one would be defined via a hotreload.
-	if tsc.serverCount == 0 {
-		return nil, ErrClusterNotDefined
-	}
-
-	// compute server index for the server which maps to the given object index
-	serverIndex, err := ardb.ComputeServerIndex(tsc.serverCount, objectIndex, tsc.serverIsOnline)
+	cfg, serverIndex, err := tsc.serverConfigFor(objectIndex)
+	tsc.mux.RUnlock()
 	if err != nil {
 		return nil, err
 	}
 
-	// establish a connection for that serverIndex
-	cfg := tsc.servers[serverIndex]
 	conn, err := tsc.pool.Dial(cfg)
 	if err == nil {
 		defer conn.Close()
 		reply, err = action.Do(conn)
-		if err == nil {
-			return reply, nil
+		if err == nil || err == ardb.ErrNil {
+			return
 		}
 	}
 
@@ -277,6 +321,14 @@ func (tsc *TemplateCluster) DoFor(objectIndex int64, action ardb.StorageAction) 
 			VdiskID:  tsc.vdiskID,
 		},
 	)
+
+	tsc.mux.Lock()
+	updateErr := tsc.updateServerState(serverIndex, config.StorageServerStateOffline)
+	tsc.mux.Unlock()
+	if updateErr != nil {
+		log.Errorf("couldn't update template server (%d) state to offline: %v", serverIndex, updateErr)
+	}
+
 	return nil, err
 }
 
@@ -366,6 +418,22 @@ func (tsc *TemplateCluster) spawnConfigReloader(ctx context.Context, cs config.S
 // updateStorageConfig overwrites the currently used storage config,
 // iff the given config is valid.
 func (tsc *TemplateCluster) updateStorageConfig(cfg config.StorageClusterConfig) error {
+	var clusterOperational bool
+	for _, server := range cfg.Servers {
+		if server.State == config.StorageServerStateOnline {
+			clusterOperational = true
+			break
+		}
+	}
+	if !clusterOperational {
+		// no servers are available,
+		// so no need to use the config at all
+		tsc.mux.Lock()
+		tsc.servers, tsc.serverCount = nil, 0
+		tsc.mux.Unlock()
+		return nil
+	}
+
 	tsc.mux.Lock()
 	tsc.servers = cfg.Servers
 	tsc.serverCount = int64(len(cfg.Servers))
@@ -373,10 +441,53 @@ func (tsc *TemplateCluster) updateStorageConfig(cfg config.StorageClusterConfig)
 	return nil
 }
 
+func (tsc *TemplateCluster) serverConfigFor(objectIndex int64) (cfg config.StorageServerConfig, serverIndex int64, err error) {
+	// ensure the template cluster is actually defined,
+	// as it is created even when no clusterID is referenced,
+	// just in case one would be defined via a hotreload.
+	if tsc.serverCount == 0 {
+		err = ErrClusterNotDefined
+		return
+	}
+
+	// compute server index for the server which maps to the given object index
+	serverIndex, err = ardb.ComputeServerIndex(tsc.serverCount, objectIndex, tsc.serverOperational)
+	if err != nil {
+		return
+	}
+
+	// establish a connection for that serverIndex
+	cfg = tsc.servers[serverIndex]
+	return
+}
+
+func (tsc *TemplateCluster) updateServerState(index int64, state config.StorageServerState) error {
+	switch state {
+	case config.StorageServerStateOnline, config.StorageServerStateOffline, config.StorageServerStateRIP:
+		tsc.servers[index].State = state
+		return nil
+
+	default:
+		return ardb.ErrServerStateNotSupported
+	}
+}
+
 // serverOperational returns true if
-// the server on the given index is online.
-func (tsc *TemplateCluster) serverIsOnline(index int64) bool {
-	return tsc.servers[index].State == config.StorageServerStateOnline
+// a server on the given index is available for operation.
+func (tsc *TemplateCluster) serverOperational(index int64) (bool, error) {
+	switch tsc.servers[index].State {
+	case config.StorageServerStateOnline:
+		return true, nil
+
+	case config.StorageServerStateOffline:
+		return false, ardb.ErrServerUnavailable
+
+	case config.StorageServerStateRIP:
+		return false, nil
+
+	default:
+		return false, ardb.ErrServerStateNotSupported
+	}
 }
 
 // storageClusterWatcher is a small helper struct,
