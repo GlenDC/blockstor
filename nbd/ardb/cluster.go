@@ -184,6 +184,7 @@ type ServerIndexPredicate func(serverIndex int64) (bool, error)
 //       and instead force primitives to work with clusters,
 //       as otherwise we might start to diviate in decision-making,
 //       depending on whether this funcion is used or the static cluster type.
+// see: https://github.com/zero-os/0-Disk/issues/549
 func FindFirstAvailableServerConfig(cfg config.StorageClusterConfig) (serverCfg config.StorageServerConfig, err error) {
 	for _, serverCfg = range cfg.Servers {
 		if serverCfg.State == config.StorageServerStateOnline {
