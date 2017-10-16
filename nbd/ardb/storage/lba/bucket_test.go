@@ -117,6 +117,12 @@ func TestBucketWithEmptyARDBStorage(t *testing.T) {
 		}
 	}
 
+	// now flush to be sure all content is gone
+	err := bucket.Flush()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// now get all hashes, and make sure they are correct, should be fine
 	for sectorIndex, sector := range allSectors {
 		for hashIndex := 0; hashIndex < NumberOfRecordsPerLBASector; hashIndex++ {

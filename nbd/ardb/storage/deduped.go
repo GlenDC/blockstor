@@ -455,13 +455,10 @@ func copyDedupedUsingSectorStorage(sourceID, targetID string, sourceCfg config.S
 			return fmt.Errorf("invalid raw sector bytes at sector index %d: %v", index, err)
 		}
 
-		err = storage.SetSector(index, sector)
-		if err != nil {
-			return fmt.Errorf("couldn't set target sector %d: %v", index, err)
-		}
+		storage.SetSector(index, sector)
 	}
 
-	return nil
+	return storage.Flush()
 }
 
 func newDeleteDedupedMetadataOp(vdiskID string) storageOp {

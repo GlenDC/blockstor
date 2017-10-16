@@ -16,7 +16,13 @@ type SectorStorage interface {
 
 	// SetSector marks a sector persistent,
 	// by preparing it to store on a stoage.
-	SetSector(index int64, sector *Sector) error
+	// NOTE: the sectors won't be stored until you called a succesfull Flush!
+	SetSector(index int64, sector *Sector)
+
+	// Flush flushes all added sectors to the storage.
+	// Essentially storing all sectors which have previously be set,
+	// but have not yet been flushed.
+	Flush() error
 }
 
 // ARDBSectorStorage creates a new sector storage
@@ -26,6 +32,7 @@ func ARDBSectorStorage(vdiskID string, cluster ardb.StorageCluster) SectorStorag
 		cluster: cluster,
 		vdiskID: vdiskID,
 		key:     StorageKey(vdiskID),
+		cache:   make(map[int64][]ardb.StorageAction),
 	}
 }
 
@@ -34,11 +41,13 @@ func ARDBSectorStorage(vdiskID string, cluster ardb.StorageCluster) SectorStorag
 type ardbSectorStorage struct {
 	cluster      ardb.StorageCluster
 	vdiskID, key string
+
+	cache map[int64][]ardb.StorageAction
 }
 
 // GetSector implements sectorStorage.GetSector
 func (s *ardbSectorStorage) GetSector(index int64) (*Sector, error) {
-	reply, err := s.cluster.Do(ardb.Command(command.HashGet, s.key, index))
+	reply, err := s.cluster.DoFor(index, ardb.Command(command.HashGet, s.key, index))
 	if reply == nil {
 		return NewSector(), nil
 	}
@@ -52,7 +61,7 @@ func (s *ardbSectorStorage) GetSector(index int64) (*Sector, error) {
 }
 
 // SetSector implements sectorStorage.SetSector
-func (s *ardbSectorStorage) SetSector(index int64, sector *Sector) error {
+func (s *ardbSectorStorage) SetSector(index int64, sector *Sector) {
 	var cmd *ardb.StorageCommand
 	if data := sector.Bytes(); data == nil {
 		cmd = ardb.Command(command.HashDelete, s.key, index)
@@ -60,5 +69,24 @@ func (s *ardbSectorStorage) SetSector(index int64, sector *Sector) error {
 		cmd = ardb.Command(command.HashSet, s.key, index, data)
 	}
 
-	return ardb.Error(s.cluster.Do(cmd))
+	s.cache[index] = append(s.cache[index], cmd)
+}
+
+// Flush implements sectorStorage.Flush
+func (s *ardbSectorStorage) Flush() error {
+	if len(s.cache) == 0 {
+		return nil // nothing to do
+	}
+
+	var err error
+	var errors flushError
+
+	// store all sectors, server per server
+	for index, cmds := range s.cache {
+		_, err = s.cluster.DoFor(index, ardb.Commands(cmds...))
+		errors.AddError(err)
+	}
+
+	// return all errors that occured, if any
+	return errors.AsError()
 }

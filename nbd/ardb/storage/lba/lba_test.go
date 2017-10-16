@@ -33,7 +33,7 @@ func TestLBAWithEmptyARDBStorage(t *testing.T) {
 		bucketLimit = (sectors / 2) * BytesPerSector
 	)
 
-	cluster := redisstub.NewUniCluster(false)
+	cluster := redisstub.NewUniCluster(true)
 	defer cluster.Close()
 
 	lba := newLBAWithStorageFactory(bucketCount, bucketLimit, func() SectorStorage {
