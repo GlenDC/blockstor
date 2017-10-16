@@ -19,9 +19,21 @@ type StorageCluster interface {
 
 // NewUniCluster creates a new (ARDB) uni-cluster.
 // See `UniCluster` for more information.
+//   ErrNoServersAvailable is returned in case the given server isn't available.
+//   ErrServerStateNotSupported is returned in case at the server
+// has a state other than StorageServerStateOnline and StorageServerStateRIP.
 func NewUniCluster(cfg config.StorageServerConfig, dialer ConnectionDialer) (*UniCluster, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
+	}
+
+	switch cfg.State {
+	case config.StorageServerStateOnline:
+		// OK
+	case config.StorageServerStateRIP:
+		return nil, ErrNoServersAvailable
+	default:
+		return nil, ErrServerStateNotSupported
 	}
 
 	if dialer == nil {
@@ -70,6 +82,9 @@ func (cluster *UniCluster) DoFor(_ int64, action StorageAction) (interface{}, er
 }
 
 // NewCluster creates a new (ARDB) cluster.
+//   ErrNoServersAvailable is returned in case no given server is available.
+//   ErrServerStateNotSupported is returned in case at least one server
+// has a state other than StorageServerStateOnline and StorageServerStateRIP.
 func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Cluster, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -79,7 +94,10 @@ func NewCluster(cfg config.StorageClusterConfig, dialer ConnectionDialer) (*Clus
 	for _, server := range cfg.Servers {
 		if server.State == config.StorageServerStateOnline {
 			clusterOperational = true
-			break
+			continue
+		}
+		if server.State != config.StorageServerStateRIP {
+			return nil, ErrServerStateNotSupported
 		}
 	}
 	if !clusterOperational {
@@ -146,16 +164,10 @@ func (cluster *Cluster) DoFor(objectIndex int64, action StorageAction) (interfac
 // serverOperational returns true if
 // the server on the given index is operational.
 func (cluster *Cluster) serverOperational(index int64) (bool, error) {
-	switch cluster.servers[index].State {
-	case config.StorageServerStateOnline:
-		return true, nil
-
-	case config.StorageServerStateRIP:
-		return false, nil
-
-	default:
-		return false, ErrServerStateNotSupported
-	}
+	// Because of the constructor,
+	// we know for sure that the state is either online or RIP.
+	ok := cluster.servers[index].State == config.StorageServerStateOnline
+	return ok, nil
 }
 
 // NopCluster is a Cluster which can be used for

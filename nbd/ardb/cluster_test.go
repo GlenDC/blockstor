@@ -1,10 +1,12 @@
 package ardb
 
 import (
+	"crypto/rand"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/zero-os/0-Disk/config"
+	"github.com/zero-os/0-Disk/nbd/ardb/command"
 	"github.com/zero-os/0-Disk/redisstub/ledisdb"
 )
 
@@ -22,6 +24,130 @@ func cluster() StorageCluster {
 		panic(err)
 	}
 	return cluster
+}
+
+func TestUniCluster(t *testing.T) {
+	server := ledisdb.NewServer()
+	defer server.Close()
+
+	const (
+		vdiskID          = "foo"
+		metaKey          = "meta_" + vdiskID
+		blockSize  int64 = 8
+		blockCount int64 = 8
+	)
+
+	serverConfig := config.StorageServerConfig{State: config.StorageServerStateRIP}
+
+	require := require.New(t)
+
+	_, err := NewUniCluster(serverConfig, nil)
+	require.Equal(ErrNoServersAvailable, err, "should fail, as server is dead")
+
+	serverConfig = config.StorageServerConfig{}
+	_, err = NewUniCluster(serverConfig, nil)
+	require.Error(err, "should fail, as we have an invalid config")
+
+	serverConfig = config.StorageServerConfig{
+		Address: server.Address(),
+		State:   config.StorageServerStateOffline,
+	}
+	_, err = NewUniCluster(serverConfig, nil)
+	require.Equal(ErrServerStateNotSupported, err, "should fail, as we have an invalid server state")
+
+	serverConfig.State = config.StorageServerStateOnline
+	cluster, err := NewUniCluster(serverConfig, nil)
+	require.NoError(err, "should succeed now, as the server is available")
+
+	var contentSlice [][]byte
+
+	// store blocks, this should be fine
+	for index := int64(0); index < blockCount; index++ {
+		content := make([]byte, blockSize)
+		rand.Read(content)
+		contentSlice = append(contentSlice, content)
+
+		_, err = cluster.Do(Command(command.Increment, metaKey))
+		_, err = cluster.DoFor(index, Command(command.HashSet, vdiskID, index, content))
+		require.NoError(err)
+	}
+
+	// check the meta key
+	fetchedBlockCount, err := Int64(cluster.Do(Command(command.Get, metaKey)))
+	require.NoError(err)
+	require.Equal(blockCount, fetchedBlockCount)
+
+	// load blocks, this should be fine as well
+	for index := int64(0); index < blockCount; index++ {
+		content, err := Bytes(cluster.DoFor(index, Command(command.HashGet, vdiskID, index)))
+		require.NoError(err)
+		require.Equal(contentSlice[index], content)
+	}
+}
+
+func TestCluster(t *testing.T) {
+	server := ledisdb.NewServer()
+	defer server.Close()
+
+	const (
+		vdiskID          = "foo"
+		metaKey          = "meta_" + vdiskID
+		blockSize  int64 = 8
+		blockCount int64 = 8
+	)
+
+	sourceClusterConfig := config.StorageClusterConfig{
+		Servers: []config.StorageServerConfig{
+			config.StorageServerConfig{State: config.StorageServerStateRIP},
+			config.StorageServerConfig{State: config.StorageServerStateRIP},
+			config.StorageServerConfig{State: config.StorageServerStateRIP},
+		},
+	}
+
+	require := require.New(t)
+
+	_, err := NewCluster(sourceClusterConfig, nil)
+	require.Equal(ErrNoServersAvailable, err, "should fail, as we don't have any online servers")
+
+	sourceClusterConfig.Servers[1] = config.StorageServerConfig{}
+	_, err = NewCluster(sourceClusterConfig, nil)
+	require.Error(err, "should fail, as we have an invalid config")
+
+	sourceClusterConfig.Servers[1] = config.StorageServerConfig{
+		Address: server.Address(),
+		State:   config.StorageServerStateOffline,
+	}
+	_, err = NewCluster(sourceClusterConfig, nil)
+	require.Equal(ErrServerStateNotSupported, err, "should fail, as we have an invalid server state")
+
+	sourceClusterConfig.Servers[1].State = config.StorageServerStateOnline
+	cluster, err := NewCluster(sourceClusterConfig, nil)
+	require.NoError(err, "should succeed now, as we have one available server")
+
+	var contentSlice [][]byte
+
+	// store blocks, this should be fine
+	for index := int64(0); index < blockCount; index++ {
+		content := make([]byte, blockSize)
+		rand.Read(content)
+		contentSlice = append(contentSlice, content)
+
+		_, err = cluster.Do(Command(command.Increment, metaKey))
+		_, err = cluster.DoFor(index, Command(command.HashSet, vdiskID, index, content))
+		require.NoError(err)
+	}
+
+	// check the meta key
+	fetchedBlockCount, err := Int64(cluster.Do(Command(command.Get, metaKey)))
+	require.NoError(err)
+	require.Equal(blockCount, fetchedBlockCount)
+
+	// load blocks, this should be fine as well
+	for index := int64(0); index < blockCount; index++ {
+		content, err := Bytes(cluster.DoFor(index, Command(command.HashGet, vdiskID, index)))
+		require.NoError(err)
+		require.Equal(contentSlice[index], content)
+	}
 }
 
 func TestComputeServerIndex_MaxAvailability(t *testing.T) {
