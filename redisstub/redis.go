@@ -96,6 +96,11 @@ func (mrs *MemoryRedisSlice) StorageClusterConfig() config.StorageClusterConfig 
 	return cfg
 }
 
+// CloseServer closes a specific server
+func (mrs *MemoryRedisSlice) CloseServer(index int64) {
+	mrs.slice[index].Close()
+}
+
 // Close implements ConnProvider.Close
 func (mrs *MemoryRedisSlice) Close() error {
 	for _, memRedis := range mrs.slice {

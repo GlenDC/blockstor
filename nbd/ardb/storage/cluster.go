@@ -113,7 +113,7 @@ func (pc *PrimaryCluster) doAt(serverIndex int64, cfg config.StorageServerConfig
 		log.Errorf("couldn't update primary server (%d) state to offline: %v", serverIndex, err)
 	}
 
-	return nil, err
+	return nil, ardb.ErrServerUnavailable
 }
 
 // Close any open resources
@@ -150,6 +150,7 @@ func (pc *PrimaryCluster) updateServerState(index int64, state config.StorageSer
 		return err
 	}
 
+	log.Debugf("updating vdisk %s' primary server #%d state to %s", pc.vdiskID, index, state)
 	pc.servers[index].State = state
 	return nil
 }
@@ -250,9 +251,30 @@ func (pc *PrimaryCluster) spawnConfigReloader(ctx context.Context, cs config.Sou
 // the currently used primary storage config,
 func (pc *PrimaryCluster) updatePrimaryStorageConfig(cfg config.StorageClusterConfig) error {
 	pc.mux.Lock()
+	defer pc.mux.Unlock()
+
+	serverCount := int64(len(cfg.Servers))
+	if serverCount > pc.serverCount {
+		serverCount = pc.serverCount
+	}
+
+	var err error
+	var origServer, newServer config.StorageServerConfig
+
+	for index := int64(0); index < serverCount; index++ {
+		origServer, newServer = pc.servers[index], cfg.Servers[index]
+		if !storageServersEqual(origServer, newServer) {
+			continue // a new server or non-changed state, so no update here
+		}
+
+		err = pc.handleServerStateUpdate(index, newServer.State)
+		if err != nil {
+			return err
+		}
+	}
+
 	pc.servers = cfg.Servers
 	pc.serverCount = int64(len(cfg.Servers))
-	pc.mux.Unlock()
 	return nil
 }
 
@@ -329,7 +351,7 @@ func (tsc *TemplateCluster) DoFor(objectIndex int64, action ardb.StorageAction) 
 		log.Errorf("couldn't update template server (%d) state to offline: %v", serverIndex, updateErr)
 	}
 
-	return nil, err
+	return nil, ardb.ErrServerUnavailable
 }
 
 // Close any open resources
@@ -464,6 +486,8 @@ func (tsc *TemplateCluster) serverConfigFor(objectIndex int64) (cfg config.Stora
 func (tsc *TemplateCluster) updateServerState(index int64, state config.StorageServerState) error {
 	switch state {
 	case config.StorageServerStateOnline, config.StorageServerStateOffline, config.StorageServerStateRIP:
+
+		log.Debugf("updating vdisk %s' template server #%d state to %s", tsc.vdiskID, index, state)
 		tsc.servers[index].State = state
 		return nil
 
@@ -559,6 +583,13 @@ func (scw *storageClusterWatcher) SetClusterID(ctx context.Context, cs config.So
 // has an internal watcher (for an existing cluster) defined.
 func (scw *storageClusterWatcher) Defined() bool {
 	return scw.clusterID != ""
+}
+
+// storageServersEqual compares if 2 storage server configs
+// are equal, except for their state.
+func storageServersEqual(a, b config.StorageServerConfig) bool {
+	return a.Database == b.Database &&
+		a.Address == b.Address
 }
 
 // mapErrorToBroadcastStatus maps the given error,

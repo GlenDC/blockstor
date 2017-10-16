@@ -182,6 +182,10 @@ type ServerIndexPredicate func(serverIndex int64) (bool, error)
 // FindFirstAvailableServerConfig iterates through all storage servers
 // until it finds a server which state indicates its available.
 // If no such server exists, ErrNoServersAvailable is returned.
+// TODO: delete this function,
+//       and instead force primitives to work with clusters,
+//       as otherwise we might start to diviate in decision-making,
+//       depending on whether this funcion is used or the static cluster type.
 func FindFirstAvailableServerConfig(cfg config.StorageClusterConfig) (serverCfg config.StorageServerConfig, err error) {
 	for _, serverCfg = range cfg.Servers {
 		if serverCfg.State == config.StorageServerStateOnline {
