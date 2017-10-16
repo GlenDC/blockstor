@@ -30,7 +30,7 @@ func (s *stubSectorStorage) GetSector(index int64) (*Sector, error) {
 }
 
 // SetSector implements sectorStorage.SetSector
-func (s *stubSectorStorage) SetSector(index int64, sector *Sector) error {
+func (s *stubSectorStorage) SetSector(index int64, sector *Sector) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -42,7 +42,6 @@ func (s *stubSectorStorage) SetSector(index int64, sector *Sector) error {
 	destination := make([]byte, len(source))
 	copy(destination, source)
 	s.flushSectors[index] = destination
-	return nil
 }
 
 // Flush implements sectorStorage.Flush
