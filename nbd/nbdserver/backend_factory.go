@@ -46,7 +46,7 @@ func newBackendFactory(cfg backendFactoryConfig) (*backendFactory, error) {
 }
 
 // backendFactory holds some variables
-// that can not be passed in the exportconfig like the pool of ardb connections.
+// that can not be passed in the exportconfig like the config source.
 // Its NewBackend method is used as the ardb backend generator.
 type backendFactory struct {
 	lbaCacheLimit int64
@@ -89,7 +89,7 @@ func (f *backendFactory) NewBackend(ctx context.Context, ec *nbd.ExportConfig) (
 		log.Error(err)
 		return
 	}
-	resourceCloser = append(resourceCloser)
+	resourceCloser = append(resourceCloser, primaryCluster)
 
 	// create template cluster if supported by vdisk
 	// NOTE: internal template cluster may be nil, this is OK
