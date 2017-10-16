@@ -240,19 +240,19 @@ func CopySemiDeduped(sourceID, targetID string, sourceCluster, targetCluster *co
 		}
 	}
 
-	metaSourceCfg, err := firstAvailableStorageServer(*sourceCluster)
+	metaSourceCfg, err := ardb.FindFirstAvailableServerConfig(*sourceCluster)
 	if err != nil {
 		return err
 	}
-	metaTargetCfg, err := firstAvailableStorageServer(*targetCluster)
+	metaTargetCfg, err := ardb.FindFirstAvailableServerConfig(*targetCluster)
 	if err != nil {
 		return err
 	}
 
 	var hasBitMask bool
-	if metaSourceCfg.Equal(metaTargetCfg) {
+	if metaSourceCfg.Equal(&metaTargetCfg) {
 		hasBitMask, err = func() (bool, error) {
-			conn, err := ardb.Dial(*metaSourceCfg)
+			conn, err := ardb.Dial(metaSourceCfg)
 			if err != nil {
 				return false, fmt.Errorf("couldn't connect to data ardb: %s", err.Error())
 			}
@@ -262,7 +262,7 @@ func CopySemiDeduped(sourceID, targetID string, sourceCluster, targetCluster *co
 		}()
 	} else {
 		hasBitMask, err = func() (bool, error) {
-			conns, err := ardb.DialAll(*metaSourceCfg, *metaTargetCfg)
+			conns, err := ardb.DialAll(metaSourceCfg, metaTargetCfg)
 			if err != nil {
 				return false, fmt.Errorf("couldn't connect to data ardb: %s", err.Error())
 			}

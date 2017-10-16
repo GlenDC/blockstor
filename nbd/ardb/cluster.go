@@ -70,15 +70,7 @@ func (cluster *UniCluster) Do(action StorageAction) (interface{}, error) {
 
 // DoFor implements StorageCluster.DoFor
 func (cluster *UniCluster) DoFor(_ int64, action StorageAction) (interface{}, error) {
-	// establish a connection for that serverIndex
-	conn, err := cluster.dialer.Dial(cluster.server)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	// apply the given action to the established connection
-	return action.Do(conn)
+	return cluster.Do(action)
 }
 
 // NewCluster creates a new (ARDB) cluster.
@@ -130,16 +122,7 @@ func (cluster *Cluster) Do(action StorageAction) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// establish a connection for that serverIndex
-	conn, err := cluster.dialer.Dial(cluster.servers[serverIndex])
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	// apply the given action to the established connection
-	return action.Do(conn)
+	return cluster.doAt(serverIndex, action)
 }
 
 // DoFor implements StorageCluster.DoFor
@@ -149,7 +132,10 @@ func (cluster *Cluster) DoFor(objectIndex int64, action StorageAction) (interfac
 	if err != nil {
 		return nil, err
 	}
+	return cluster.doAt(serverIndex, action)
+}
 
+func (cluster *Cluster) doAt(serverIndex int64, action StorageAction) (interface{}, error) {
 	// establish a connection for that serverIndex
 	conn, err := cluster.dialer.Dial(cluster.servers[serverIndex])
 	if err != nil {

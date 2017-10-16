@@ -134,6 +134,12 @@ func NewBlockStorage(cfg BlockStorageConfig, cluster, templateCluster ardb.Stora
 
 	vdiskType := cfg.VdiskType
 
+	// templateCluster gets disabled,
+	// if vdisk type has no template support.
+	if !vdiskType.TemplateSupport() {
+		templateCluster = nil
+	}
+
 	switch storageType := vdiskType.StorageType(); storageType {
 	case config.StorageDeduped:
 		return Deduped(
@@ -516,17 +522,6 @@ func dedupInt64s(s []int64) []int64 {
 	}
 
 	return s
-}
-
-// firstAvailableStorageServer returns the first available (ARDB) storage server.
-func firstAvailableStorageServer(cfg config.StorageClusterConfig) (*config.StorageServerConfig, error) {
-	for _, serverCfg := range cfg.Servers {
-		if serverCfg.State == config.StorageServerStateOnline {
-			return &serverCfg, nil
-		}
-	}
-
-	return nil, ardb.ErrNoServersAvailable
 }
 
 // a slightly expensive helper function which allows

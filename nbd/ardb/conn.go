@@ -34,7 +34,7 @@ func NewPool(dial DialFunc) *Pool {
 
 // Pool maintains a collection of pools (one pool per config).
 type Pool struct {
-	mux      sync.RWMutex //protects following
+	mux      sync.Mutex //protects following
 	pools    map[config.StorageServerConfig]*redis.Pool
 	dialFunc DialFunc
 }
@@ -45,16 +45,17 @@ func (p *Pool) Dial(cfg config.StorageServerConfig) (Conn, error) {
 		return nil, ErrServerUnavailable
 	}
 
-	conn := p.getConnectionSpecificPool(cfg).Get()
+	p.mux.Lock()
+	pool := p.getConnectionSpecificPool(cfg)
+	p.mux.Unlock()
+
+	conn := pool.Get()
 	return conn, conn.Err()
 }
 
 // GetConnectionSpecificPool gets a redis.Pool for a specific config.
 func (p *Pool) getConnectionSpecificPool(cfg config.StorageServerConfig) *redis.Pool {
-	p.mux.RLock()
 	pool, ok := p.pools[cfg]
-	p.mux.RUnlock()
-
 	if ok {
 		return pool
 	}
@@ -66,10 +67,7 @@ func (p *Pool) getConnectionSpecificPool(cfg config.StorageServerConfig) *redis.
 		IdleTimeout: 240 * time.Second,
 		Dial:        func() (redis.Conn, error) { return p.dialFunc(cfg) },
 	}
-	p.mux.Lock()
 	p.pools[cfg] = pool
-	p.mux.Unlock()
-
 	return pool
 }
 
