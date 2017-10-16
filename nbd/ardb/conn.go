@@ -46,18 +46,25 @@ func (p *Pool) Dial(cfg config.StorageServerConfig) (Conn, error) {
 	}
 
 	p.mux.Lock()
-	pool := p.getConnectionSpecificPool(cfg)
+	pool, err := p.getConnectionSpecificPool(cfg)
 	p.mux.Unlock()
+	if err != nil {
+		return nil, err
+	}
 
 	conn := pool.Get()
 	return conn, conn.Err()
 }
 
 // GetConnectionSpecificPool gets a redis.Pool for a specific config.
-func (p *Pool) getConnectionSpecificPool(cfg config.StorageServerConfig) *redis.Pool {
+func (p *Pool) getConnectionSpecificPool(cfg config.StorageServerConfig) (*redis.Pool, error) {
+	if p.pools == nil {
+		return nil, errPoolAlreadyClosed
+	}
+
 	pool, ok := p.pools[cfg]
 	if ok {
-		return pool
+		return pool, nil
 	}
 
 	pool = &redis.Pool{
@@ -68,7 +75,7 @@ func (p *Pool) getConnectionSpecificPool(cfg config.StorageServerConfig) *redis.
 		Dial:        func() (redis.Conn, error) { return p.dialFunc(cfg) },
 	}
 	p.pools[cfg] = pool
-	return pool
+	return pool, nil
 }
 
 // Close releases the resources used by the pool.
@@ -156,5 +163,6 @@ type Conn interface {
 
 // Various connection-related errors returned by this package.
 var (
-	errAddressNotGiven = errors.New("ARDB server address not given")
+	errAddressNotGiven   = errors.New("ARDB server address not given")
+	errPoolAlreadyClosed = errors.New("ARDB pool already closed")
 )
