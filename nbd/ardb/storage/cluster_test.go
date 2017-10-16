@@ -3,11 +3,15 @@ package storage
 import (
 	"context"
 	"crypto/rand"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zero-os/0-Disk/config"
+	"github.com/zero-os/0-Disk/log"
 	"github.com/zero-os/0-Disk/nbd/ardb"
 	"github.com/zero-os/0-Disk/nbd/ardb/command"
 	"github.com/zero-os/0-Disk/redisstub"
@@ -474,4 +478,47 @@ func waitForAsyncClusterUpdate(t *testing.T, predicate func() bool) {
 			t.Fatal("Timed out waiting for tlog cluster ID to be updated.")
 		}
 	}
+}
+
+func TestMapErrorToBroadcastStatus(t *testing.T) {
+	assert := assert.New(t)
+
+	// unknown errors return true
+	status := mapErrorToBroadcastStatus(errors.New("foo"))
+	assert.Equal(log.StatusUnknownError, status)
+
+	// all possible sucesfull map scenarios:
+
+	// map EOF errors
+	status = mapErrorToBroadcastStatus(io.EOF)
+	assert.Equal(log.StatusServerDisconnect, status)
+
+	// map net.Errors
+	status = mapErrorToBroadcastStatus(stubNetError{false, false})
+	assert.Equal(log.StatusUnknownError, status)
+
+	status = mapErrorToBroadcastStatus(stubNetError{false, true})
+	assert.Equal(log.StatusServerTempError, status)
+
+	status = mapErrorToBroadcastStatus(stubNetError{true, false})
+	assert.Equal(log.StatusServerTimeout, status)
+
+	status = mapErrorToBroadcastStatus(stubNetError{true, true})
+	assert.Equal(log.StatusServerTimeout, status)
+}
+
+type stubNetError struct {
+	timeout, temporary bool
+}
+
+func (err stubNetError) Timeout() bool {
+	return err.timeout
+}
+
+func (err stubNetError) Temporary() bool {
+	return err.temporary
+}
+
+func (err stubNetError) Error() string {
+	return "stub net error"
 }
