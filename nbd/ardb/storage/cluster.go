@@ -431,6 +431,126 @@ func (ctrl *templateClusterStateController) spawnConfigReloader(ctx context.Cont
 	return nil
 }
 
+type primarySlaveClusterPairStateController struct {
+	vdiskID string
+
+	servers     [2][]config.StorageServerConfig
+	serverCount int64
+	serverTypes []int8
+
+	mux sync.RWMutex
+
+	cancel context.CancelFunc
+}
+
+var psClusterPairTypes = [2]log.ARDBServerType{
+	log.ARDBPrimaryServer, log.ARDBSlaveServer,
+}
+
+// ServerStateFor implements ClusterStateController.ServerStateFor
+func (ctrl *primarySlaveClusterPairStateController) ServerState() (ServerState, error) {
+	ctrl.mux.RLock()
+	defer ctrl.mux.RUnlock()
+
+	if ctrl.serverCount == 0 {
+		return ServerState{}, ErrClusterNotDefined
+	}
+
+	index, err := ardb.FindFirstServerIndex(ctrl.serverCount, ctrl.serverOperational)
+	if err != nil {
+		return ServerState{}, err
+	}
+	return ctrl.serverAt(index)
+}
+
+// ServerStateFor implements ClusterStateController.ServerStateFor
+func (ctrl *primarySlaveClusterPairStateController) ServerStateFor(objectIndex int64) (ServerState, error) {
+	ctrl.mux.RLock()
+	defer ctrl.mux.RUnlock()
+
+	if ctrl.serverCount == 0 {
+		return ServerState{}, ErrClusterNotDefined
+	}
+
+	index, err := ardb.ComputeServerIndex(ctrl.serverCount, objectIndex, ctrl.serverOperational)
+	if err != nil {
+		return ServerState{}, err
+	}
+	return ctrl.serverAt(index)
+}
+
+// ServerStateAt implements ClusterStateController.ServerStateAt
+func (ctrl *primarySlaveClusterPairStateController) ServerStateAt(serverIndex int64) (ServerState, error) {
+	ctrl.mux.RLock()
+	defer ctrl.mux.RUnlock()
+
+	if ctrl.serverCount == 0 {
+		return ServerState{}, ErrClusterNotDefined
+	}
+	if serverIndex < 0 || serverIndex >= ctrl.serverCount {
+		return ServerState{}, ardb.ErrServerIndexOOB
+	}
+
+	return ctrl.serverAt(serverIndex)
+}
+
+// UpdateServerState implements ClusterStateController.UpdateServerState
+func (ctrl *primarySlaveClusterPairStateController) UpdateServerState(state ServerState) bool {
+	ctrl.mux.Lock()
+	defer ctrl.mux.Unlock()
+	// TODO.. continue this
+}
+
+// TODO: add config hot reloading (primarySlaveClusterPairStateController)
+
+// TODO: add server state change handling (primarySlaveClusterPairStateController)
+
+// ServerCount implements ClusterStateController.ServerCount
+func (ctrl *primarySlaveClusterPairStateController) ServerCount() int64 {
+	ctrl.mux.RLock()
+	count := ctrl.serverCount
+	ctrl.mux.RUnlock()
+	return count
+}
+
+// Close implements ClusterStateController.Close
+func (ctrl *primarySlaveClusterPairStateController) Close() error {
+	ctrl.cancel()
+	return nil
+}
+
+func (ctrl *primarySlaveClusterPairStateController) serverAt(serverIndex int64) (state ServerState, err error) {
+	clusterIndex := ctrl.serverTypes[serverIndex]
+	if clusterIndex == -1 {
+		return ServerState{}, ardb.ErrServerUnavailable
+	}
+
+	state.Index = serverIndex
+	state.Config = ctrl.servers[clusterIndex][serverIndex]
+	state.Type = psClusterPairTypes[clusterIndex]
+	return state, nil
+}
+
+func (ctrl *primarySlaveClusterPairStateController) serverOperational(index int64) (bool, error) {
+	clusterIndex := ctrl.serverTypes[index]
+	if clusterIndex == -1 {
+		return false, ardb.ErrServerUnavailable
+	}
+
+	switch ctrl.servers[clusterIndex][index].State {
+	case config.StorageServerStateOnline:
+		// use primary server
+		return true, nil
+
+	case config.StorageServerStateRIP:
+		// use no server, but continue search
+		return false, nil
+
+	default:
+		panic("invalid storage server state")
+	}
+}
+
 // NewPrimaryCluster creates a new PrimaryCluster.
 // See `PrimaryCluster` for more information.
 func NewPrimaryCluster(ctx context.Context, vdiskID string, cs config.Source) (*PrimaryCluster, error) {
@@ -870,6 +990,7 @@ var (
 // enforces that our ClusterStateControllers
 // are actually ClusterStateControllers
 var (
+	_ ClusterStateController = (*primarySlaveClusterPairStateController)(nil)
 	_ ClusterStateController = (*templateClusterStateController)(nil)
 )
 
