@@ -498,7 +498,7 @@ func (ctrl *primarySlaveClusterPairStateController) UpdateServerState(state Serv
 
 	// ensure index is within range
 	if state.Index >= ctrl.serverCount {
-		log.Debugf("couldn't update %s server for vdisk %s: index is OOB", state.Type, ctrl.vdiskID)
+		log.Infof("couldn't update %s server for vdisk %s: index is OOB", state.Type, ctrl.vdiskID)
 		return false // OOB
 	}
 
@@ -729,11 +729,11 @@ func (s *primaryServer) IsOperational() (bool, error) {
 }
 func (s *primaryServer) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
 	if cfg == nil {
-		log.Errorf("deleting primary server (%s) without a slave server to back it up", s.cfg.String())
+		log.Errorf("deleting primary server (%s) without a slave server to back it up", &s.cfg)
 		return undefinedServer{}
 	}
 
-	log.Infof("updating primary server from %s to %s", s.cfg.String(), cfg.String())
+	log.Infof("updating primary server from %s to %s", &s.cfg, cfg)
 	s.cfg = *cfg
 	return s
 }
@@ -789,7 +789,7 @@ func (s *slaveServer) SetPrimaryServerConfig(cfg *config.StorageServerConfig) pr
 	if cfg.State != config.StorageServerStateOnline {
 		log.Infof(
 			"pairing unavaialble primary server %s with unavailable slave server %s, keeing the pair unavailable",
-			cfg.String(), s.cfg.String())
+			cfg, &s.cfg)
 		return &unavailablePrimarySlaveServerPair{
 			primary: *cfg,
 			slave:   s.cfg,
@@ -800,6 +800,8 @@ func (s *slaveServer) SetPrimaryServerConfig(cfg *config.StorageServerConfig) pr
 	// not copying from slave to primary,
 	// as the config was restored from some invalid state,
 	// and thus we'll asume that the external user takes full responsibility
+	log.Infof("promoting unavailable slave server (%s) to a primarySlaveServerPair, "+
+		"using the newly configured primary server (%s)", &s.cfg, cfg)
 	return &primarySlaveServerPair{primary: *cfg, slave: s.cfg}
 }
 func (s *slaveServer) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
@@ -841,13 +843,14 @@ func (p *primarySlaveServerPair) IsOperational() (bool, error) {
 func (p *primarySlaveServerPair) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
 	if cfg == nil {
 		// [TODO] warn AYS about this error
-		log.Errorf("disabling primary server (%s), making this server index unavailable", p.primary.String())
+		log.Errorf("disabling primary server (%s), making this server index unavailable", &p.primary)
 		return &slaveServer{p.slave}
 	}
 
 	switch cfg.State {
 	case config.StorageServerStateOnline:
 		if !p.primary.Equal(*cfg) {
+			log.Infof("swapping online (paired and used) primary server  %s with %s", &p.primary, cfg)
 			// [TODO] Copy: PS -> PS'
 			/*
 				if err != nil {
@@ -870,6 +873,8 @@ func (p *primarySlaveServerPair) SetPrimaryServerConfig(cfg *config.StorageServe
 		// as long as there is a slave to back it up,
 		// we can try to switch to it
 		if p.slave.State == config.StorageServerStateOnline {
+			log.Infof("bringing primary server (%s) offline, "+
+				"attempting to use slave server (%s) as the primary instead", cfg, &p.slave)
 			// switch to slave server
 			// [TODO]: communicate to tlogserver that it should stop syncing to slave server
 
@@ -887,6 +892,8 @@ func (p *primarySlaveServerPair) SetPrimaryServerConfig(cfg *config.StorageServe
 	}
 
 	// in all other scenarios the pair becomes unavailable
+	log.Errorf("primary server (%s) becomes unavailable due to unexpected state %s, "+
+		"making this pair unavailable", cfg, cfg.State)
 	return &unavailablePrimarySlaveServerPair{
 		primary: *cfg,
 		slave:   p.slave,
@@ -895,21 +902,22 @@ func (p *primarySlaveServerPair) SetPrimaryServerConfig(cfg *config.StorageServe
 }
 func (p *primarySlaveServerPair) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
 	if cfg == nil {
-		log.Infof("deleting slave server (%s), leaving the primary server (%s) without a backup server",
-			p.slave.String(), p.primary.String())
+		log.Errorf("deleting slave server (%s), leaving the primary server (%s) without a backup server",
+			&p.slave, &p.primary)
 		return &primaryServer{p.primary}
 	}
 
 	// some state checking, purely for logging purposes
 	if cfg.State == config.StorageServerStateOnline && p.slave.State != config.StorageServerStateOnline {
 		log.Infof("enabling slave server (%s), to be used as backup for the primary server (%s)",
-			cfg.String(), p.primary.String())
+			cfg, &p.primary)
 	} else if cfg.State != config.StorageServerStateOnline && p.slave.State == config.StorageServerStateOnline {
-		log.Infof("disabling slave server (%s), leaving the primary server (%s) without backup",
-			p.slave.String(), p.primary.String())
+		log.Errorf("disabling slave server (%s), leaving the primary server (%s) without backup",
+			cfg, &p.primary)
 	}
 
 	// update slave config
+	log.Infof("swapping (unused) slave server %s with %s", &p.slave, cfg)
 	p.slave = *cfg
 	return p
 }
@@ -927,12 +935,12 @@ func (p *unavailablePrimarySlaveServerPair) IsOperational() (bool, error) {
 }
 func (p *unavailablePrimarySlaveServerPair) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
 	if cfg == nil {
-		log.Infof("deleting unavailable primary server %s, keeping this serverPair unavailable", p.primary.String())
+		log.Errorf("deleting unavailable primary server %s, keeping this serverPair unavailable", &p.primary)
 		return &slaveServer{cfg: p.slave}
 	}
 
 	if cfg.State == config.StorageServerStateOnline {
-		log.Infof("making unavailable serverPair available by switching to primary server %s", cfg.String())
+		log.Infof("making unavailable serverPair available by switching to primary server %s", cfg)
 		return &primarySlaveServerPair{
 			primary: *cfg,
 			slave:   p.slave,
@@ -940,16 +948,18 @@ func (p *unavailablePrimarySlaveServerPair) SetPrimaryServerConfig(cfg *config.S
 	}
 
 	// simply update the already broken primary cfg
+	log.Errorf("swapping (unavailable and paired) primary server %s with %s", &p.primary, cfg)
 	p.primary = *cfg
 	return p
 }
 func (p *unavailablePrimarySlaveServerPair) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
 	if cfg == nil {
-		log.Infof("deleting unavailable slave server %s, doing nothing to fix the unavailable serverPair", p.slave.String())
+		log.Errorf("deleting unavailable slave server %s, doing nothing to fix the unavailable serverPair", &p.slave)
 		return &primaryServer{cfg: p.primary}
 	}
 
 	if p.primary.State == config.StorageServerStateOffline && cfg.State == config.StorageServerStateOnline {
+		log.Infof("attempting to make unavailable serverPair available by switching to slave server %s", cfg)
 		// [TODO] communicate with tlogserver to stop syncing to slave server
 		return &slavePrimaryServerPair{
 			primary: p.primary,
@@ -957,7 +967,7 @@ func (p *unavailablePrimarySlaveServerPair) SetSlaveServerConfig(cfg *config.Sto
 		}
 	}
 
-	log.Infof("updating unavailable slave server %s, doing nothing to fix the unavailable serverPair", cfg.String())
+	log.Errorf("updating unavailable slave server %s, doing nothing to fix the unavailable serverPair", cfg)
 	p.slave = *cfg
 	return p
 }
@@ -984,10 +994,15 @@ func (p *slavePrimaryServerPair) IsOperational() (bool, error) {
 func (p *slavePrimaryServerPair) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
 	if cfg == nil {
 		// switch to pure slave server (which is just an unavailable dummy really)
+		// [TODO] communicate with Tlogserver that it can start syncing to slave server again
+		log.Infof("deleting (unused and previously paired) primary server (%s), "+
+			"demoting slave server %s to become unused and unavailable", &p.primary, cfg)
 		return &slaveServer{cfg: p.slave}
 	}
 
 	if cfg.State == config.StorageServerStateOnline {
+		log.Infof("attempting to make unavailable serverPair available by using %s as the primary server "+
+			" to be used and paired with slave server %s", cfg, &p.slave)
 		// [TODO] copy SS -> PS
 		// ... on error  what to return AND DO warn AYS
 		// [TODO] contact tlogserver to warn it can sync to slave server once again
@@ -1003,20 +1018,30 @@ func (p *slavePrimaryServerPair) SetPrimaryServerConfig(cfg *config.StorageServe
 	}
 
 	// simply update the primary server config
+	log.Infof(
+		"swapping (unused) primary server %s with %s, pairing it with the used slave server %s",
+		&p.primary, cfg, &p.slave)
 	p.primary = *cfg
 	return p // and return the same slave-used pair
 }
 func (p *slavePrimaryServerPair) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
 	if cfg == nil {
+		log.Errorf(
+			"deleting used (and previously paired) slave server %s, "+
+				"making this pair unavaialble by switching to unavaialble primary server %s", &p.slave, &p.primary)
 		return &primaryServer{cfg: p.primary}
 	}
+
 	if cfg.State == config.StorageServerStateOnline {
+		log.Infof("swapping used (and paired) slave server %s with %s", &p.slave, cfg)
 		// [TODO] Copy: SS -> SS'
 		// ... on error -> switch to unavaialble cluster
 		p.slave = *cfg // update config
 		return p
 	}
 
+	log.Errorf(
+		"making (paired and previously used) slave server %s unavaialble, making this pair unavaialble", cfg)
 	// [TODO] Warn AYS
 	return &unavailablePrimarySlaveServerPair{
 		primary: p.primary,
