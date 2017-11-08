@@ -12,6 +12,9 @@ import (
 	"github.com/zero-os/0-Disk/nbd/ardb"
 )
 
+// [TODO]
+// => Figure out how to do the communication with the slave sync controller
+
 // NewCluster creates a new storage cluster for the given vdiskID,
 // using the given controller to control the server state and fetch that state from.
 func NewCluster(vdiskID string, controller ClusterStateController) (*Cluster, error) {
@@ -434,7 +437,7 @@ func (ctrl *templateClusterStateController) spawnConfigReloader(ctx context.Cont
 type primarySlaveClusterPairStateController struct {
 	vdiskID string
 
-	servers                       []primarySlaveServerPair
+	servers                       []primarySlavePairController
 	serverCount, slaveServerCount int64
 
 	mux sync.RWMutex
@@ -455,7 +458,7 @@ func (ctrl *primarySlaveClusterPairStateController) ServerState() (ServerState, 
 	if err != nil {
 		return ServerState{}, err
 	}
-	return ctrl.servers[index].State(index)
+	return ctrl.servers[index].ServerState(index)
 }
 
 // ServerStateFor implements ClusterStateController.ServerStateFor
@@ -471,7 +474,7 @@ func (ctrl *primarySlaveClusterPairStateController) ServerStateFor(objectIndex i
 	if err != nil {
 		return ServerState{}, err
 	}
-	return ctrl.servers[index].State(index)
+	return ctrl.servers[index].ServerState(index)
 }
 
 // ServerStateAt implements ClusterStateController.ServerStateAt
@@ -485,7 +488,7 @@ func (ctrl *primarySlaveClusterPairStateController) ServerStateAt(serverIndex in
 	if serverIndex < 0 || serverIndex >= ctrl.serverCount {
 		return ServerState{}, ardb.ErrServerIndexOOB
 	}
-	return ctrl.servers[serverIndex].State(serverIndex)
+	return ctrl.servers[serverIndex].ServerState(serverIndex)
 }
 
 // UpdateServerState implements ClusterStateController.UpdateServerState
@@ -499,129 +502,26 @@ func (ctrl *primarySlaveClusterPairStateController) UpdateServerState(state Serv
 		return false // OOB
 	}
 
-	// update the state of the server
-	var err error
-
+	// update the state of the server, using the defined primary/slave server config
 	switch state.Type {
 	case log.ARDBPrimaryServer:
-		err = ctrl.servers[state.Index].SetPrimaryServerConfig(state.Config)
+		ctrl.servers[state.Index] = ctrl.servers[state.Index].SetPrimaryServerConfig(&state.Config)
 	case log.ARDBSlaveServer:
-		err = ctrl.servers[state.Index].SetSlaveServerConfig(state.Config)
+		ctrl.servers[state.Index] = ctrl.servers[state.Index].SetSlaveServerConfig(&state.Config)
 	default:
 		panic("unsupported server type update in NBD PrimarySlaveClusterPair")
 	}
 
-	if err != nil {
-		log.Debugf("couldn't update %s server for vdisk %s: %v", state.Type, ctrl.vdiskID, err)
-		return false
-	}
 	return true
 }
 
-func (ctrl *primarySlaveClusterPairStateController) setPrimaryConfig(cfg config.StorageClusterConfig) error {
-	ctrl.mux.Lock()
-	defer ctrl.mux.Unlock()
-
-	// set server count and ensure we have the right amount of servers
-	/*serverCount := int64(len(cfg.Servers))
-	if serverCount > ctrl.serverCount {
-		// expand servers, so slave info can be stored
-		servers := make([]primarySlaveServerPair, serverCount)
-		copy(servers, ctrl.servers)
-		ctrl.servers = servers
-		// set non-used slave servers to unknown states
-		for index := ctrl.serverCount; index < serverCount; index++ {
-			ctrl.servers[index].SetPrimaryServerConfig(
-				config.StorageServerConfig{State: config.StorageServerStateUnknown})
-		}
-	} else if serverCount < ctrl.serverCount {
-
-	}*/
-	// TODO
-
-	// update all primary configs, one by one,
-	// continue even if errors occur
-	var errs errors.ErrorSlice
-	for index, serverCfg := range cfg.Servers {
-		errs.Add(ctrl.servers[index].SetPrimaryServerConfig(serverCfg))
-	}
-	return errs.AsError()
+func (ctrl *primarySlaveClusterPairStateController) setPrimaryClusterConfig(cfg config.StorageClusterConfig) error {
+	panic("TODO")
 }
 
-// Primary- Vs Slave- ServerCount
-// -1  | max() | more primaries, extra slaves are disabled
-//  0  | max() | -
-// +1  | max() | more slaves, extra primaries are disabled (disabling the entire pair)
-//       serverCount | primaryServerCount | slaveServerCount
-// -1 |       =      |         +          |       =
-//  0 |       =      |         =          |       =
-//  0 |       =      |         =          |       +
-func (ctrl *primarySlaveClusterPairStateController) setSlaveConfig(cfg config.StorageClusterConfig) error {
-	ctrl.mux.Lock()
-	defer ctrl.mux.Unlock()
-
-	// check server count, in function of the primary server count
-	// TODO
-	serverCount := int64(len(cfg.Servers))
-	if serverCount != ctrl.slaveServerCount {
-		if serverCount > ctrl.serverCount {
-			log.Infof("vdisk %s has %d slave servers, while it only has %d primary servers",
-				ctrl.vdiskID, serverCount, ctrl.ServerCount)
-			// expand servers, so slave info can be stored
-			servers := make([]primarySlaveServerPair, serverCount)
-			copy(servers, ctrl.servers)
-			ctrl.servers = servers
-			// set non-used primary servers to unknown states
-			for index := ctrl.serverCount; index < serverCount; index++ {
-				ctrl.servers[index].SetPrimaryServerConfig(
-					config.StorageServerConfig{State: config.StorageServerStateUnknown})
-			}
-		} else if serverCount < ctrl.serverCount {
-			log.Infof("vdisk %s has only %d slave servers, while it has %d primary servers",
-				ctrl.vdiskID, serverCount, ctrl.ServerCount)
-			// set deleted slave servers to unknown states
-			for index := serverCount; index < ctrl.serverCount; index++ {
-				ctrl.servers[index].SetSlaveServerConfig(
-					config.StorageServerConfig{State: config.StorageServerStateUnknown})
-			}
-		}
-		ctrl.slaveServerCount = serverCount
-	}
-
-	// update all slave configs, one by one,
-	// continue even if errors occur
-	var errs errors.ErrorSlice
-	for index, serverCfg := range cfg.Servers {
-		errs.Add(ctrl.servers[index].SetSlaveServerConfig(serverCfg))
-	}
-	return errs.AsError()
+func (ctrl *primarySlaveClusterPairStateController) setSlaveClusterConfig(cfg config.StorageClusterConfig) error {
+	panic("TODO")
 }
-
-func (ctrl *primarySlaveClusterPairStateController) setServerCount(serverCount int64) {
-	if serverCount == ctrl.serverCount {
-		return
-	}
-
-	if serverCount > ctrl.serverCount {
-		log.Debugf("increasing server count for vdisk %s's primarySlaveClusterPair to %d server(s)",
-			ctrl.vdiskID, serverCount)
-		servers := make([]primarySlaveServerPair, serverCount)
-		copy(servers, ctrl.servers)
-		ctrl.servers = servers
-		ctrl.serverCount = serverCount
-		return
-	}
-
-	// serverCount < ctrl.serverCount
-	log.Debugf("decreasing server count for vdisk %s's primarySlaveClusterPair to %d server(s)",
-		ctrl.vdiskID, serverCount)
-	ctrl.servers = ctrl.servers[:serverCount]
-	ctrl.serverCount = serverCount
-}
-
-// TODO: add config hot reloading (primarySlaveClusterPairStateController)
-
-// TODO: add server state change handling (primarySlaveClusterPairStateController)
 
 // ServerCount implements ClusterStateController.ServerCount
 func (ctrl *primarySlaveClusterPairStateController) ServerCount() int64 {
@@ -669,7 +569,7 @@ func (ctrl *primarySlaveClusterPairStateController) spawnConfigReloader(ctx cont
 	if !clusterExists {
 		panic("primary cluster should always exist on a non-error path")
 	}
-	err = ctrl.setPrimaryConfig(<-primClusterWatcher.Receive())
+	err = ctrl.setPrimaryClusterConfig(<-primClusterWatcher.Receive())
 	if err != nil {
 		return err
 	}
@@ -680,7 +580,7 @@ func (ctrl *primarySlaveClusterPairStateController) spawnConfigReloader(ctx cont
 		return err
 	}
 	if clusterExists {
-		err = ctrl.setSlaveConfig(<-slaveClusterWatcher.Receive())
+		err = ctrl.setSlaveClusterConfig(<-slaveClusterWatcher.Receive())
 		if err != nil {
 			return err
 		}
@@ -718,7 +618,7 @@ func (ctrl *primarySlaveClusterPairStateController) spawnConfigReloader(ctx cont
 				// unset slave cluster if it no longer exists
 				if !clusterExists {
 					log.Infof("vdisk %s no longer has a slave cluster defined", ctrl.vdiskID)
-					err = ctrl.setSlaveConfig(config.StorageClusterConfig{})
+					err = ctrl.setSlaveClusterConfig(config.StorageClusterConfig{})
 					if err != nil {
 						log.Errorf("couldn't undefine slave cluster config for vdisk %s: %v",
 							ctrl.vdiskID, err)
@@ -727,9 +627,9 @@ func (ctrl *primarySlaveClusterPairStateController) spawnConfigReloader(ctx cont
 
 			// handle primary cluster storage updates
 			case clusterCfg = <-primClusterWatcher.Receive():
-				err = ctrl.setPrimaryConfig(clusterCfg)
+				err = ctrl.setPrimaryClusterConfig(clusterCfg)
 				if err != nil {
-					log.Errorf("couldn't set primary config %s for vdisk %s: %v",
+					log.Errorf("couldn't set primary cluster config %s for vdisk %s: %v",
 						vdiskNBDConfig.StorageClusterID, ctrl.vdiskID, err)
 					cs.MarkInvalidKey(config.Key{
 						ID:   vdiskNBDConfig.StorageClusterID,
@@ -739,9 +639,9 @@ func (ctrl *primarySlaveClusterPairStateController) spawnConfigReloader(ctx cont
 
 			// handle slave cluster storage updates
 			case clusterCfg = <-slaveClusterWatcher.Receive():
-				err = ctrl.setSlaveConfig(clusterCfg)
+				err = ctrl.setSlaveClusterConfig(clusterCfg)
 				if err != nil {
-					log.Errorf("couldn't set slave config %s for vdisk %s: %v",
+					log.Errorf("couldn't set slave cluster config %s for vdisk %s: %v",
 						vdiskNBDConfig.SlaveStorageClusterID, ctrl.vdiskID, err)
 					cs.MarkInvalidKey(config.Key{
 						ID:   vdiskNBDConfig.SlaveStorageClusterID,
@@ -756,22 +656,373 @@ func (ctrl *primarySlaveClusterPairStateController) spawnConfigReloader(ctx cont
 	return nil
 }
 
-type primarySlaveServerPair struct{}
+// [TODO]
+// => figure out how we can access stuff like the slave-sync-controller
+//    from within the SetPrimaryServerConfig/SetSlaveServerConfig calls
 
-func (pair primarySlaveServerPair) State(index int64) (ServerState, error) {
-	return ServerState{}, errors.New("TODO")
+/*
+what about...
+
+type SlaveSyncController interface {
+	StartSlaveSync(indices ...int64) error
+	StopSlaveSync(indices ...int64) error
 }
 
-func (pair primarySlaveServerPair) SetPrimaryServerConfig(cfg config.StorageServerConfig) error {
-	return errors.New("TODO")
+// this could be used within the SetPrimaryServerConfig/SetSlaveServerConfig calls
+type primarySlavePairContext struct {
+	SlaveSyncer SlaveSyncController
 }
 
-func (pair primarySlaveServerPair) SetSlaveServerConfig(cfg config.StorageServerConfig) error {
-	return errors.New("TODO")
+*/
+
+type primarySlavePairController interface {
+	ServerState(index int64) (ServerState, error)
+	IsOperational() (bool, error)
+
+	SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController
+	SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController
 }
 
-func (pair primarySlaveServerPair) IsOperational() (bool, error) {
-	return false, errors.New("TODO")
+type undefinedServer struct{}
+
+func (s undefinedServer) ServerState(index int64) (ServerState, error) {
+	return ServerState{}, ErrServerNotDefined
+}
+func (s undefinedServer) IsOperational() (bool, error) { return false, ErrServerNotDefined }
+func (s undefinedServer) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		return s
+	}
+	return &primaryServer{cfg: *cfg}
+}
+func (s undefinedServer) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		return s
+	}
+	return &slaveServer{cfg: *cfg}
+}
+
+type primaryServer struct {
+	cfg config.StorageServerConfig
+}
+
+func (s *primaryServer) ServerState(index int64) (ServerState, error) {
+	if s.cfg.State != config.StorageServerStateOnline {
+		return ServerState{}, ardb.ErrServerUnavailable
+	}
+
+	return ServerState{
+		Index:  index,
+		Config: s.cfg,
+		Type:   log.ARDBPrimaryServer,
+	}, nil
+}
+func (s *primaryServer) IsOperational() (bool, error) {
+	switch s.cfg.State {
+	case config.StorageServerStateOnline:
+		return true, nil
+	case config.StorageServerStateRIP:
+		return false, nil
+	default:
+		return false, ardb.ErrServerUnavailable
+	}
+}
+func (s *primaryServer) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		log.Errorf("deleting primary server (%s) without a slave server to back it up", s.cfg.String())
+		return undefinedServer{}
+	}
+
+	log.Infof("updating primary server from %s to %s", s.cfg.String(), cfg.String())
+	s.cfg = *cfg
+	return s
+}
+func (s *primaryServer) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		return s // nothing to do
+	}
+
+	if s.cfg.State == config.StorageServerStateOnline {
+		// simply upgrade to primarySlaveCluster,
+		// as we don't care what the slave server config is at this point
+		return &primarySlaveServerPair{
+			primary: s.cfg,
+			slave:   *cfg,
+		}
+	}
+
+	if s.cfg.State == config.StorageServerStateOffline {
+		if s.cfg.State == config.StorageServerStateOnline {
+			// [TODO]: First ensure that we can safely use slave server as primary server (e.g. talk to tlogserver first)
+			return &slavePrimaryServerPair{
+				primary: s.cfg,
+				slave:   *cfg,
+			}
+		}
+
+		return &unavailablePrimarySlaveServerPair{
+			primary: s.cfg,
+			slave:   *cfg,
+			reason:  errors.New("primary server is offline and no slave server is available"),
+		}
+	}
+
+	return &unavailablePrimarySlaveServerPair{
+		primary: s.cfg,
+		slave:   *cfg,
+		reason:  errors.Newf("can't switch to slave server as primary server is in unexpected state %s", s.cfg.State),
+	}
+}
+
+type slaveServer struct {
+	cfg config.StorageServerConfig
+}
+
+func (s *slaveServer) ServerState(index int64) (ServerState, error) {
+	return ServerState{}, ardb.ErrServerUnavailable
+}
+func (s *slaveServer) IsOperational() (bool, error) { return false, ardb.ErrServerUnavailable }
+func (s *slaveServer) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		return s // nothing to do
+	}
+	if cfg.State != config.StorageServerStateOnline {
+		log.Infof(
+			"pairing unavaialble primary server %s with unavailable slave server %s, keeing the pair unavailable",
+			cfg.String(), s.cfg.String())
+		return &unavailablePrimarySlaveServerPair{
+			primary: *cfg,
+			slave:   s.cfg,
+			reason:  errors.New("neither the primary or slave server is online"),
+		}
+	}
+
+	// not copying from slave to primary,
+	// as the config was restored from some invalid state,
+	// and thus we'll asume that the external user takes full responsibility
+	return &primarySlaveServerPair{primary: *cfg, slave: s.cfg}
+}
+func (s *slaveServer) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		log.Infof("deleting disabled slave server (%s), making the server pair undefined", s.cfg.String())
+		return undefinedServer{}
+	}
+
+	log.Infof("updating disabled slave server from %s to %s", s.cfg.String(), cfg.String())
+	s.cfg = *cfg
+	return s
+}
+
+type primarySlaveServerPair struct {
+	primary, slave config.StorageServerConfig
+}
+
+func (p *primarySlaveServerPair) ServerState(index int64) (ServerState, error) {
+	if p.primary.State != config.StorageServerStateOnline {
+		return ServerState{}, ardb.ErrServerUnavailable
+	}
+
+	return ServerState{
+		Index:  index,
+		Config: p.primary,
+		Type:   log.ARDBPrimaryServer,
+	}, nil
+}
+func (p *primarySlaveServerPair) IsOperational() (bool, error) {
+	switch p.primary.State {
+	case config.StorageServerStateOnline:
+		return true, nil
+	case config.StorageServerStateRIP:
+		return false, nil
+	default:
+		return false, ardb.ErrServerUnavailable
+	}
+}
+func (p *primarySlaveServerPair) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		// [TODO] warn AYS about this error
+		log.Errorf("disabling primary server (%s), making this server index unavailable", p.primary.String())
+		return &slaveServer{p.slave}
+	}
+
+	switch cfg.State {
+	case config.StorageServerStateOnline:
+		if !p.primary.Equal(*cfg) {
+			// [TODO] Copy: PS -> PS'
+			/*
+				if err != nil {
+					// [TODO] log error
+					// [TODO] notify AYS
+					return &unavailablePrimarySlaveServerPair{
+						primary: *cfg,
+						slave:   p.slave,
+						reason: err,
+					}
+				}
+			*/
+
+			// update config
+			p.primary = *cfg
+		}
+		return p
+
+	case config.StorageServerStateOffline:
+		// as long as there is a slave to back it up,
+		// we can try to switch to it
+		if p.slave.State == config.StorageServerStateOnline {
+			// switch to slave server
+			// [TODO]: communicate to tlogserver that it should stop syncing to slave server
+
+			if true { // [TODO] replace by `err == nil`
+				// start using slave server (but keep also the new primary cfg in memory)
+				return &slavePrimaryServerPair{
+					primary: *cfg,
+					slave:   p.slave,
+				}
+			}
+			/* else {
+				// [TODO] log error AND notify AYS
+			} */
+		}
+	}
+
+	// in all other scenarios the pair becomes unavailable
+	return &unavailablePrimarySlaveServerPair{
+		primary: *cfg,
+		slave:   p.slave,
+		reason:  errors.Newf("unexpected primary server state change to %s", cfg.State),
+	}
+}
+func (p *primarySlaveServerPair) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		log.Infof("deleting slave server (%s), leaving the primary server (%s) without a backup server",
+			p.slave.String(), p.primary.String())
+		return &primaryServer{p.primary}
+	}
+
+	// some state checking, purely for logging purposes
+	if cfg.State == config.StorageServerStateOnline && p.slave.State != config.StorageServerStateOnline {
+		log.Infof("enabling slave server (%s), to be used as backup for the primary server (%s)",
+			cfg.String(), p.primary.String())
+	} else if cfg.State != config.StorageServerStateOnline && p.slave.State == config.StorageServerStateOnline {
+		log.Infof("disabling slave server (%s), leaving the primary server (%s) without backup",
+			p.slave.String(), p.primary.String())
+	}
+
+	// update slave config
+	p.slave = *cfg
+	return p
+}
+
+type unavailablePrimarySlaveServerPair struct {
+	primary, slave config.StorageServerConfig
+	reason         error
+}
+
+func (p *unavailablePrimarySlaveServerPair) ServerState(index int64) (ServerState, error) {
+	return ServerState{}, errors.WrapError(ardb.ErrServerUnavailable, p.reason)
+}
+func (p *unavailablePrimarySlaveServerPair) IsOperational() (bool, error) {
+	return false, errors.WrapError(ardb.ErrServerUnavailable, p.reason)
+}
+func (p *unavailablePrimarySlaveServerPair) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		log.Infof("deleting unavailable primary server %s, keeping this serverPair unavailable", p.primary.String())
+		return &slaveServer{cfg: p.slave}
+	}
+
+	if cfg.State == config.StorageServerStateOnline {
+		log.Infof("making unavailable serverPair available by switching to primary server %s", cfg.String())
+		return &primarySlaveServerPair{
+			primary: *cfg,
+			slave:   p.slave,
+		}
+	}
+
+	// simply update the already broken primary cfg
+	p.primary = *cfg
+	return p
+}
+func (p *unavailablePrimarySlaveServerPair) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		log.Infof("deleting unavailable slave server %s, doing nothing to fix the unavailable serverPair", p.slave.String())
+		return &primaryServer{cfg: p.primary}
+	}
+
+	if p.primary.State == config.StorageServerStateOffline && cfg.State == config.StorageServerStateOnline {
+		// [TODO] communicate with tlogserver to stop syncing to slave server
+		return &slavePrimaryServerPair{
+			primary: p.primary,
+			slave:   *cfg,
+		}
+	}
+
+	log.Infof("updating unavailable slave server %s, doing nothing to fix the unavailable serverPair", cfg.String())
+	p.slave = *cfg
+	return p
+}
+
+type slavePrimaryServerPair struct {
+	slave, primary config.StorageServerConfig
+}
+
+func (p *slavePrimaryServerPair) ServerState(index int64) (ServerState, error) {
+	if p.slave.State != config.StorageServerStateOnline {
+		panic("slavePrimaryServerPair requires an online slave server")
+	}
+	return ServerState{
+		Index:  index,
+		Config: p.slave,
+		Type:   log.ARDBSlaveServer,
+	}, nil
+}
+func (p *slavePrimaryServerPair) IsOperational() (bool, error) {
+	// this type is only used when slave server is used AND online,
+	// and thus we do not need to check anything
+	return true, nil
+}
+func (p *slavePrimaryServerPair) SetPrimaryServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		// switch to pure slave server (which is just an unavailable dummy really)
+		return &slaveServer{cfg: p.slave}
+	}
+
+	if cfg.State == config.StorageServerStateOnline {
+		// [TODO] copy SS -> PS
+		// ... on error  what to return AND DO warn AYS
+		// [TODO] contact tlogserver to warn it can sync to slave server once again
+		// ... What to do with error?
+		// Warn AYS on error too?
+
+		// repairing was succesful,
+		// return fixed primarySlave pair and start using primary again
+		return &primarySlaveServerPair{
+			primary: *cfg,
+			slave:   p.slave,
+		}
+	}
+
+	// simply update the primary server config
+	p.primary = *cfg
+	return p // and return the same slave-used pair
+}
+func (p *slavePrimaryServerPair) SetSlaveServerConfig(cfg *config.StorageServerConfig) primarySlavePairController {
+	if cfg == nil {
+		return &primaryServer{cfg: p.primary}
+	}
+	if cfg.State == config.StorageServerStateOnline {
+		// [TODO] Copy: SS -> SS'
+		// ... on error -> switch to unavaialble cluster
+		p.slave = *cfg // update config
+		return p
+	}
+
+	// [TODO] Warn AYS
+	return &unavailablePrimarySlaveServerPair{
+		primary: p.primary,
+		slave:   *cfg,
+		reason:  errors.Newf("slave server became unavaialble (state: %s), while using it as a primary server", cfg.State),
+	} // switch to broken pair
 }
 
 // NewPrimaryCluster creates a new PrimaryCluster.
@@ -789,6 +1040,10 @@ func NewPrimaryCluster(ctx context.Context, vdiskID string, cs config.Source) (*
 
 	return primaryCluster, nil
 }
+
+// [TODO]
+// => delete all this deprecated primary cluster code
+//    and replace it with a `NewPrimarySlaveClusterPair` constructor
 
 // PrimaryCluster defines a vdisk's primary cluster.
 // It supports hot reloading of the configuration
@@ -1225,6 +1480,9 @@ var (
 	// ErrClusterNotDefined is an error returned
 	// in case a cluster is used which is not defined.
 	ErrClusterNotDefined = errors.New("ARDB storage cluster is not defined")
+
+	// ErrServerNotDefined is returned when no server in a pair is defined
+	ErrServerNotDefined = errors.New("ARDB server is not defined")
 )
 
 var (
