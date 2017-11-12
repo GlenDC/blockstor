@@ -103,3 +103,36 @@ func (s *Sector) Bytes() []byte {
 
 	return s.hashes
 }
+
+// Hashes returns all non-nil hashes stored within this sector.
+// This method returns a nil slice in case it is called on a nil-sector.
+func (s *Sector) Hashes() (hashes [][]byte) {
+	var hash []byte
+	for offset := 0; offset < BytesPerSector; offset += zerodisk.HashSize {
+		hash = s.hashes[offset : offset+zerodisk.HashSize]
+		if zerodisk.Hash(hash).Equals(zerodisk.NilHash) {
+			continue
+		}
+		hashes = append(hashes, hash)
+	}
+	return
+}
+
+// LocalIndexHashMap returns all non-nil hashes stored within this sector,
+// mapped to its local index (range [0, NumberOfRecordsPerLBASector[).
+// This method returns a nil map in case it is called on a nil-sector.
+func (s *Sector) LocalIndexHashMap() map[int64][]byte {
+	hm := make(map[int64][]byte)
+	var hash []byte
+	for i, offset := int64(0), 0; i < NumberOfRecordsPerLBASector; i, offset = i+1, offset+zerodisk.HashSize {
+		hash = s.hashes[offset : offset+zerodisk.HashSize]
+		if zerodisk.Hash(hash).Equals(zerodisk.NilHash) {
+			continue
+		}
+		hm[i] = hash
+	}
+	if len(hm) == 0 {
+		return nil
+	}
+	return hm
+}

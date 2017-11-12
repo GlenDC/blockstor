@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/zero-os/0-Disk"
 	"github.com/zero-os/0-Disk/errors"
@@ -309,9 +310,11 @@ func listDedupedBlockIndices(vdiskID string, cluster ardb.StorageCluster) ([]int
 	return indices, nil
 }
 
-// copyDedupedMetadata copies all metadata of a deduped storage
+// copyDeduped copies all metadata of a deduped storage
 // from a sourceID to a targetID, within the same cluster or between different clusters.
-func copyDedupedMetadata(sourceID, targetID string, sourceBS, targetBS int64, sourceCluster, targetCluster ardb.StorageCluster) error {
+// If the given deep parameter is `false`, only a shallow copy will take place,
+// which will just copy the metadata and nothing else. Otherwise everything relevant for that vdisk will be copied.
+func copyDeduped(sourceID, targetID string, sourceBS, targetBS int64, sourceCluster, targetCluster ardb.StorageCluster, deep bool) error {
 	if sourceBS != targetBS {
 		return errors.Newf(
 			"vdisks %s and %s have non matching block sizes (%d != %d)",
@@ -322,14 +325,14 @@ func copyDedupedMetadata(sourceID, targetID string, sourceBS, targetBS int64, so
 		log.Infof(
 			"copying deduped (LBA) metadata from vdisk %s to vdisk %s within a single storage cluster...",
 			sourceID, targetID)
-		return copyDedupedSameCluster(sourceID, targetID, sourceCluster)
+		return copyDedupedSameCluster(sourceID, targetID, sourceCluster, deep)
 	}
 
 	if sourceCluster.ServerCount() == targetCluster.ServerCount() {
 		log.Infof(
 			"copying deduped (LBA) metadata from vdisk %s to vdisk %s between clusters wihh an equal amount of servers...",
 			sourceID, targetID)
-		return copyDedupedSameServerCount(sourceID, targetID, sourceCluster, targetCluster)
+		return copyDedupedSameServerCount(sourceID, targetID, sourceCluster, targetCluster, deep)
 	}
 
 	log.Infof(
@@ -338,7 +341,7 @@ func copyDedupedMetadata(sourceID, targetID string, sourceBS, targetBS int64, so
 	return copyDedupedDifferentServerCount(sourceID, targetID, sourceCluster, targetCluster)
 }
 
-func copyDedupedSameCluster(sourceID, targetID string, cluster ardb.StorageCluster) error {
+func copyDedupedSameCluster(sourceID, targetID string, cluster ardb.StorageCluster, deep bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -348,6 +351,8 @@ func copyDedupedSameCluster(sourceID, targetID string, cluster ardb.StorageClust
 	}
 
 	sourceKey, targetKey := lbaStorageKey(sourceID), lbaStorageKey(targetID)
+	// [TODO] Reference all blocks for this vdisk if `deep` input param is true
+	// see: https://github.com/zero-os/0-Disk/issues/147
 	action := ardb.Script(0, copyDedupedSameConnScriptSource,
 		[]string{targetKey}, sourceKey, targetKey)
 
@@ -400,7 +405,7 @@ func copyDedupedSameCluster(sourceID, targetID string, cluster ardb.StorageClust
 	return nil
 }
 
-func copyDedupedSameServerCount(sourceID, targetID string, sourceCluster, targetCluster ardb.StorageCluster) error {
+func copyDedupedSameServerCount(sourceID, targetID string, sourceCluster, targetCluster ardb.StorageCluster, deep bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -416,8 +421,18 @@ func copyDedupedSameServerCount(sourceID, targetID string, sourceCluster, target
 	sourceKey := lbaStorageKey(sourceID)
 	targetKey := lbaStorageKey(targetID)
 
+	// [TODO] Reference all blocks for this vdisk if `deep` input param is true
+	// see: https://github.com/zero-os/0-Disk/issues/147
+	// solved by using another script if that input param is given?!
 	sameConnAction := ardb.Script(0, copyDedupedSameConnScriptSource,
 		[]string{targetKey}, sourceKey, targetKey)
+
+	var betweenServerCopier func(sourceKey, targetKey string, src, dst ardb.StorageServer) (int64, error)
+	if deep {
+		betweenServerCopier = deepCopyDedupedDataBetweenServers
+	} else {
+		betweenServerCopier = copyDedupedMetadataBetweenServers
+	}
 
 	type copyResult struct {
 		Count int64
@@ -450,7 +465,7 @@ func copyDedupedSameServerCount(sourceID, targetID string, sourceCluster, target
 				log.Debugf(
 					"copy deduped (LBA) metadata from vdisk %s (at %s) to vdisk %s (at %s)",
 					sourceID, src.Config(), targetID, dst.Config())
-				result.Count, result.Error = copyDedupedBetweenServers(sourceKey, targetKey, src, dst)
+				result.Count, result.Error = betweenServerCopier(sourceKey, targetKey, src, dst)
 			}
 
 			select {
@@ -594,7 +609,147 @@ func dedupMetadataFetcher(ctx context.Context, storageKey string, server ardb.St
 	return ch
 }
 
-func copyDedupedBetweenServers(sourceKey, targetKey string, src, dst ardb.StorageServer) (int64, error) {
+func deepCopyDedupedDataBetweenServers(sourceKey, targetKey string, src, dst ardb.StorageServer) (int64, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type copyResult struct {
+		Count int64
+		Error error
+	}
+	resultChan := make(chan copyResult)
+
+	var wg sync.WaitGroup
+	// spawn one goroutine per group of dedup metadata fetched
+	// each goroutine will than for each sector fetch all blocks and store them together with the sector
+	inputCh := dedupMetadataFetcher(ctx, sourceKey, src)
+	for input := range inputCh {
+		if input.Error != nil {
+			log.Errorf("stop deep-copying (meta)data from %s to %s due to an error: %v",
+				sourceKey, targetKey, input.Error)
+			return 0, input.Error
+		}
+		data := input.Data
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// variables used to store all keys and values of sectors,
+			// which we'll collect while we're storing the block data
+			sectorKVIndex, sectorKVCount := 0, len(data)*2
+			indicesAndSectors := make([]interface{}, sectorKVCount+1)
+			// we'll store the hash map key at the front,
+			// as we'll use it to MultiHashSet it all later.
+			indicesAndSectors[sectorKVIndex] = targetKey
+			sectorKVIndex++
+
+			// elementCount contains the total count of elements which
+			// we'll have copied by the end of this goroutine
+			var elementCount int64
+
+			// some variables we'll use for each iteration
+			var (
+				err            error
+				sector         *lba.Sector
+				hashes, blocks [][]byte
+			)
+
+			// store all blocks mapped in the loaded sectors first
+			for sectorIndex, sectorData := range data {
+				// create sector from the incoming raw data
+				sector, err = lba.SectorFromBytes(sectorData)
+				if err != nil {
+					err = errors.Wrapf(err, "failed to read sector %d", sectorIndex)
+					break
+				}
+				hashes = sector.Hashes()
+				blockCount := len(hashes)
+
+				// fetch all blocks at once
+				hashKeys := make([]interface{}, blockCount)
+				for i := 0; i < blockCount; i++ {
+					hashKeys[i] = hashes[i]
+				}
+				log.Debugf("reading %d mapped source blocks from sector %s #%d...", blockCount, sourceKey, sectorIndex)
+				blocks, err = ardb.ByteSlices(src.Do(ardb.Command(command.MultiGet, hashKeys...)))
+				if err != nil {
+					err = errors.Wrapf(err, "failed to read mapped source blocks from sector %d", sectorIndex)
+					break
+				}
+
+				// zip hashes and blocks together
+				hashesAndBlocks := make([]interface{}, 0, blockCount*2)
+				for i := 0; i < blockCount; i++ {
+					hashesAndBlocks = append(hashesAndBlocks, hashes[i], blocks[i])
+				}
+
+				// store all blocks at once
+				log.Debugf("writing %d mapped destination blocks for sector %s #%d...", blockCount, targetKey, sectorIndex)
+				err = ardb.Error(dst.Do(ardb.Command(command.MultiSet, hashesAndBlocks...)))
+				if err != nil {
+					err = errors.Wrapf(err, "failed to store mapped blocks from sector %d in destination", sectorIndex)
+					break
+				}
+
+				// store sector KV
+				indicesAndSectors[sectorKVIndex] = sectorIndex
+				sectorKVIndex++
+				indicesAndSectors[sectorKVIndex] = sectorData
+				sectorKVIndex++
+
+				// keep track of total element count that we'll have copied
+				// we're a bit optimistic as we'll already count the sector as being copied as well
+				elementCount += int64(1 + blockCount) // add sector and blocks from this iteration
+			}
+			// if something went wrong while storing blocks (data), return early
+			if err != nil {
+				select {
+				case resultChan <- copyResult{Error: err}:
+				case <-ctx.Done():
+				}
+				return
+			}
+
+			// now store all sectors at once
+			log.Debugf("writing %d sectors into %s (originating from %s)", len(data), targetKey, sourceKey)
+			err = ardb.Error(dst.Do(ardb.Command(command.HashMultiSet, indicesAndSectors...)))
+
+			// send the final result,
+			// which contains either an error, or the total element count
+			var result copyResult
+			if err == nil {
+				result.Count = elementCount
+			} else {
+				result.Error = err
+			}
+			select {
+			case resultChan <- result:
+			case <-ctx.Done():
+			}
+		}()
+	}
+
+	// close the resultChan once all dedupMetadata fetchers are finished
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// collect all results
+	var totalCount int64
+	for result := range resultChan {
+		if result.Error != nil {
+			log.Errorf("stop copying sectors from %s to %s due to an error: %v",
+				sourceKey, targetKey, result.Error)
+			return 0, result.Error
+		}
+		totalCount += result.Count
+	}
+
+	return totalCount, nil
+}
+
+func copyDedupedMetadataBetweenServers(sourceKey, targetKey string, src, dst ardb.StorageServer) (int64, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

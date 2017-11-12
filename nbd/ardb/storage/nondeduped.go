@@ -271,9 +271,9 @@ func listNonDedupedBlockIndices(vdiskID string, cluster ardb.StorageCluster) ([]
 	return indices, nil
 }
 
-// copyNonDedupedData copies all data of a non-deduped storage
+// copyNonDeduped copies all data of a non-deduped storage
 // from a sourceID to a targetID, within the same cluster or between different clusters.
-func copyNonDedupedData(sourceID, targetID string, sourceBS, targetBS int64, sourceCluster, targetCluster ardb.StorageCluster) error {
+func copyNonDeduped(sourceID, targetID string, sourceBS, targetBS int64, sourceCluster, targetCluster ardb.StorageCluster) error {
 	if sourceBS != targetBS {
 		return errors.Newf(
 			"vdisks %s and %s have non matching block sizes (%d != %d)",

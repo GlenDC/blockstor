@@ -228,19 +228,63 @@ func CopyVdisk(source, target CopyVdiskConfig, sourceCluster, targetCluster ardb
 	var err error
 	switch sourceStorageType {
 	case config.StorageDeduped:
-		err = copyDedupedMetadata(
+		err = copyDeduped(
 			source.VdiskID, target.VdiskID, source.BlockSize, target.BlockSize,
-			sourceCluster, targetCluster)
+			sourceCluster, targetCluster, false)
 
 	case config.StorageNonDeduped:
-		err = copyNonDedupedData(
+		err = copyNonDeduped(
 			source.VdiskID, target.VdiskID, source.BlockSize, target.BlockSize,
 			sourceCluster, targetCluster)
 
 	case config.StorageSemiDeduped:
 		err = copySemiDeduped(
 			source.VdiskID, target.VdiskID, source.BlockSize, target.BlockSize,
+			sourceCluster, targetCluster, false)
+
+	default:
+		err = errors.Newf(
+			"%v is not a supported storage type", sourceStorageType)
+	}
+
+	if err != nil || !source.Type.TlogSupport() || !target.Type.TlogSupport() {
+		return err
+	}
+
+	return copyTlogMetadata(source.VdiskID, target.VdiskID, sourceCluster, targetCluster)
+}
+
+// DeepCopyVdisk allows you to deep copy a vdisk from a source to a target vdisk.
+// The source and target vdisks have to have the same storage type and block size.
+// They can be stored on the same or different clusters.
+// In contrast to a shallow copy (see: CopyVdisk), DeepCopyVdisk will copy all data
+// linked to a vdisk and found on a source vdisk.
+// This for example includes deduped blocks for a vdisk which uses a underlying deduped storage.
+func DeepCopyVdisk(source, target CopyVdiskConfig, sourceCluster, targetCluster ardb.StorageCluster) error {
+	sourceStorageType := source.Type.StorageType()
+	targetStorageType := target.Type.StorageType()
+	if sourceStorageType != targetStorageType {
+		return errors.Newf(
+			"source vdisk %s and target vdisk %s have different storageTypes (%s != %s)",
+			source.VdiskID, target.VdiskID, sourceStorageType, targetStorageType)
+	}
+
+	var err error
+	switch sourceStorageType {
+	case config.StorageDeduped:
+		err = copyDeduped(
+			source.VdiskID, target.VdiskID, source.BlockSize, target.BlockSize,
+			sourceCluster, targetCluster, true)
+
+	case config.StorageNonDeduped:
+		err = copyNonDeduped(
+			source.VdiskID, target.VdiskID, source.BlockSize, target.BlockSize,
 			sourceCluster, targetCluster)
+
+	case config.StorageSemiDeduped:
+		err = copySemiDeduped(
+			source.VdiskID, target.VdiskID, source.BlockSize, target.BlockSize,
+			sourceCluster, targetCluster, true)
 
 	default:
 		err = errors.Newf(

@@ -23,7 +23,7 @@ var vdiskCmdCfg struct {
 	TlogPrivKey             string
 	FlushSize               int
 	JobCount                int
-	Force                   bool
+	Force, Deep             bool
 }
 
 // VdiskCmd represents the vdisk copy subcommand
@@ -126,7 +126,11 @@ func copyVdisk(cmd *cobra.Command, args []string) error {
 		BlockSize: int64(dstStaticConfig.BlockSize),
 	}
 
-	err = storage.CopyVdisk(sourceConfig, targetConfig, sourceCluster, targetCluster)
+	if vdiskCmdCfg.Deep {
+		err = storage.DeepCopyVdisk(sourceConfig, targetConfig, sourceCluster, targetCluster)
+	} else {
+		err = storage.CopyVdisk(sourceConfig, targetConfig, sourceCluster, targetCluster)
+	}
 	if err != nil || !dstStaticConfig.Type.TlogSupport() {
 		return err // return early if an error occured, or if dst no tlog support
 	}
@@ -219,4 +223,9 @@ NOTE: the storage types and block sizes of source and target vdisk
 		&vdiskCmdCfg.Force,
 		"force", "f", false,
 		"when given, delete the target vdisk if it already existed")
+
+	VdiskCmd.Flags().BoolVarP(
+		&vdiskCmdCfg.Deep,
+		"deep", "d", false,
+		"when given, copy all meta and metadata found for a vdisk, not just its shallow elements (e.g. metadata)")
 }

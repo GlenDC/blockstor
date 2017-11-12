@@ -25,6 +25,9 @@ var (
 	// Get the value of a key.
 	Get = Type{"GET", false}
 
+	// MultiGet gets the values of all specified keys.
+	MultiGet = Type{"MGET", false}
+
 	// Scan iterates the set of keys in the currently selected ARDB database.
 	Scan = Type{"SCAN", false}
 
@@ -52,6 +55,9 @@ var (
 
 	// HashSet sets the value of a hash field
 	HashSet = Type{"HSET", true}
+
+	// HashMultiSet sets the specified fields to their respective values in the hash stored at key.
+	HashMultiSet = Type{"HMSET", true}
 
 	// HashValues gets the values in a hash.
 	HashValues = Type{"HVALS", false}
@@ -110,6 +116,11 @@ var (
 
 	// Set the value of a key.
 	Set = Type{"SET", true}
+
+	// MultiSet sets the given keys to their respective value.
+	// This operation is atomic,
+	// so it is not possible for one value to be set, while others aren't.
+	MultiSet = Type{"MSET", true}
 
 	// SetIntersect intersects multiple sets
 	SetIntersect = Type{"SINTER", false}

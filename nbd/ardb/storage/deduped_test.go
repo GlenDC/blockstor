@@ -638,6 +638,9 @@ func testCopyDedupedDifferentServerCount(assert *assert.Assertions, indices []in
 	}
 }
 
+// TODO:
+// test deepCopyDedupedDataBetweenServers and ensure it's valid
+
 func init() {
 	log.SetLevel(log.DebugLevel)
 }

@@ -236,8 +236,11 @@ func listSemiDedupedBlockIndices(vdiskID string, cluster ardb.StorageCluster) ([
 
 // copySemiDeduped copies a semi deduped storage
 // within the same or between different storage clusters.
-func copySemiDeduped(sourceID, targetID string, sourceBS, targetBS int64, sourceCluster, targetCluster ardb.StorageCluster) error {
-	err := copyDedupedMetadata(sourceID, targetID, sourceBS, targetBS, sourceCluster, targetCluster)
+// If the given deep parameter is `false`, only a shallow copy will take place,
+// which will just copy the deduped metadata and nondeduped data.
+// Otherwise everything relevant for that vdisk will be copied.
+func copySemiDeduped(sourceID, targetID string, sourceBS, targetBS int64, sourceCluster, targetCluster ardb.StorageCluster, deep bool) error {
+	err := copyDeduped(sourceID, targetID, sourceBS, targetBS, sourceCluster, targetCluster, deep)
 	if err != nil {
 		return err
 	}
@@ -258,7 +261,7 @@ func copySemiDeduped(sourceID, targetID string, sourceBS, targetBS int64, source
 		return err
 	}
 
-	return copyNonDedupedData(sourceID, targetID, sourceBS, targetBS, sourceCluster, targetCluster)
+	return copyNonDeduped(sourceID, targetID, sourceBS, targetBS, sourceCluster, targetCluster)
 }
 
 func copySemiDedupedSingleCluster(sourceID, targetID string, cluster ardb.StorageCluster) (bool, error) {

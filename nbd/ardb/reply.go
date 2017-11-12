@@ -230,6 +230,14 @@ func Int64ToBytesMapping(reply interface{}, err error) (map[int64][]byte, error)
 	return m, nil
 }
 
+// ByteSlices is a helper that converts an array command reply to a [][]byte.
+// If err is not equal to nil, then ByteSlices returns nil, err. Nil array
+// items are stay nil. ByteSlices returns an error if an array item is not a
+// bulk string or nil.
+func ByteSlices(reply interface{}, err error) ([][]byte, error) {
+	return redis.ByteSlices(reply, err)
+}
+
 var (
 	// ErrNil indicates that a reply value is nil.
 	ErrNil = redis.ErrNil
